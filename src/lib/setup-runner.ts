@@ -107,10 +107,10 @@ export async function runSetup(
       if (!secrets.facebookPageId || !secrets.facebookPageToken) {
         return "Skipped — no Facebook page configured yet.";
       }
-      const r = await fetch(
+      const r = await proxyFetch(
         `https://graph.facebook.com/v21.0/${encodeURIComponent(secrets.facebookPageId)}?fields=id,name&access_token=${encodeURIComponent(secrets.facebookPageToken)}`,
       );
-      const j = (await r.json()) as { id?: string; name?: string; error?: { message: string } };
+      const j = await r.json<{ id?: string; name?: string; error?: { message: string } }>();
       if (j.error) throw new Error(j.error.message);
       const sql = `insert into public.pages (fb_page_id, fb_page_name)
         values ('${(j.id ?? "").replace(/'/g, "''")}', '${(j.name ?? "Unnamed").replace(/'/g, "''")}')
