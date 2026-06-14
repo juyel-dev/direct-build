@@ -1,4 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
 import type { Providers, Secrets } from "./config-store";
 import { getProject } from "./management-api";
 import { proxyFetch } from "./proxy-fetch";
@@ -10,16 +9,26 @@ export interface TestResult {
   data?: unknown;
 }
 
-export async function testSupabaseRest(secrets: Pick<Secrets, "supabaseUrl" | "supabaseAnonKey">): Promise<TestResult> {
+export async function testSupabaseRest(
+  secrets: Pick<Secrets, "supabaseUrl" | "supabaseAnonKey">,
+): Promise<TestResult> {
+  if (!secrets.supabaseUrl || !secrets.supabaseAnonKey)
+    return { ok: false, detail: "Add the URL and anon key first." };
   try {
-    const c = createClient(secrets.supabaseUrl, secrets.supabaseAnonKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
+    const base = secrets.supabaseUrl.replace(/\/+$/, "");
+    // Hit PostgREST root via proxy — avoids browser CORS / preview fetch-proxy quirks.
+    const r = await proxyFetch(`${base}/rest/v1/`, {
+      headers: {
+        apikey: secrets.supabaseAnonKey,
+        authorization: `Bearer ${secrets.supabaseAnonKey}`,
+      },
     });
-    const { error } = await c.from("_migrations").select("id").limit(1);
-    if (error && !/relation .* does not exist|permission denied/i.test(error.message)) {
-      return { ok: false, detail: error.message };
+    if (r.status === 200 || r.status === 404) {
+      return { ok: true, detail: `REST reachable (HTTP ${r.status}).` };
     }
-    return { ok: true, detail: "Connected to project REST API." };
+    if (r.status === 401) return { ok: false, detail: "Bad anon key (401)." };
+    const body = (await r.text()).slice(0, 160);
+    return { ok: false, detail: `HTTP ${r.status} ${body}` };
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : String(e) };
   }
