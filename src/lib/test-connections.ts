@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Providers, Secrets } from "./config-store";
 import { getProject } from "./management-api";
+import { proxyFetch } from "./proxy-fetch";
 import { projectRefFromUrl } from "./config-store";
 
 export interface TestResult {
@@ -41,8 +42,8 @@ export async function testFacebook(token: string, pageId?: string): Promise<Test
     const url = pageId
       ? `https://graph.facebook.com/v21.0/${encodeURIComponent(pageId)}?fields=id,name,category&access_token=${encodeURIComponent(token)}`
       : `https://graph.facebook.com/v21.0/me?fields=id,name&access_token=${encodeURIComponent(token)}`;
-    const r = await fetch(url);
-    const j = (await r.json()) as { id?: string; name?: string; error?: { message: string } };
+    const r = await proxyFetch(url);
+    const j = await r.json<{ id?: string; name?: string; error?: { message: string } }>();
     if (j.error) return { ok: false, detail: j.error.message };
     return { ok: true, detail: `Facebook OK: ${j.name ?? "(no name)"} (${j.id})`, data: j };
   } catch (e) {
@@ -69,7 +70,7 @@ export async function testLLM(providers: Providers, apiKey: string): Promise<Tes
   if (!base) return { ok: false, detail: "No base URL configured." };
   try {
     if (providers.llm.type === "anthropic") {
-      const r = await fetch(`${base}/messages`, {
+      const r = await proxyFetch(`${base}/messages`, {
         method: "POST",
         headers: {
           "x-api-key": apiKey,
@@ -88,7 +89,7 @@ export async function testLLM(providers: Providers, apiKey: string): Promise<Tes
     }
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
-    const r = await fetch(`${base}/chat/completions`, {
+    const r = await proxyFetch(`${base}/chat/completions`, {
       method: "POST",
       headers,
       body: JSON.stringify({

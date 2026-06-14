@@ -13,6 +13,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ScheduleRouteImport } from './routes/schedule'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiProxyRouteImport } from './routes/api/proxy'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -34,18 +35,25 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiProxyRoute = ApiProxyRouteImport.update({
+  id: '/api/proxy',
+  path: '/api/proxy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
   '/schedule': typeof ScheduleRoute
   '/settings': typeof SettingsRoute
+  '/api/proxy': typeof ApiProxyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
   '/schedule': typeof ScheduleRoute
   '/settings': typeof SettingsRoute
+  '/api/proxy': typeof ApiProxyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +61,14 @@ export interface FileRoutesById {
   '/analytics': typeof AnalyticsRoute
   '/schedule': typeof ScheduleRoute
   '/settings': typeof SettingsRoute
+  '/api/proxy': typeof ApiProxyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/analytics' | '/schedule' | '/settings'
+  fullPaths: '/' | '/analytics' | '/schedule' | '/settings' | '/api/proxy'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/analytics' | '/schedule' | '/settings'
-  id: '__root__' | '/' | '/analytics' | '/schedule' | '/settings'
+  to: '/' | '/analytics' | '/schedule' | '/settings' | '/api/proxy'
+  id: '__root__' | '/' | '/analytics' | '/schedule' | '/settings' | '/api/proxy'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +76,7 @@ export interface RootRouteChildren {
   AnalyticsRoute: typeof AnalyticsRoute
   ScheduleRoute: typeof ScheduleRoute
   SettingsRoute: typeof SettingsRoute
+  ApiProxyRoute: typeof ApiProxyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +109,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/proxy': {
+      id: '/api/proxy'
+      path: '/api/proxy'
+      fullPath: '/api/proxy'
+      preLoaderRoute: typeof ApiProxyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +124,7 @@ const rootRouteChildren: RootRouteChildren = {
   AnalyticsRoute: AnalyticsRoute,
   ScheduleRoute: ScheduleRoute,
   SettingsRoute: SettingsRoute,
+  ApiProxyRoute: ApiProxyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

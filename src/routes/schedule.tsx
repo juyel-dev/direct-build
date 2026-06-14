@@ -8,6 +8,7 @@ import { getUserSupabase } from "@/lib/user-supabase";
 import { getSessionPassphrase, loadBrand, loadInstallStatus, loadProviders, loadSecrets } from "@/lib/config-store";
 import { addDays, format, startOfDay } from "date-fns";
 import { PlusIcon, SparklesIcon, CheckIcon, XMarkIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { proxyFetch } from "@/lib/proxy-fetch";
 
 export const Route = createFileRoute("/schedule")({
   head: () => ({ meta: [{ title: "Schedule — Aurora" }, { name: "description", content: "Weekly content schedule. Approve, edit, and skip AI-generated Facebook posts." }] }),
@@ -143,7 +144,7 @@ Audience: ${brand.audience || "general"}.
 Write JSON only: {"topic": string, "caption": string, "hashtags": string[], "image_prompt": string}.
 Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene description.`;
       const user = `Topic seed: ${b.topic || "anything that fits the brand"}. Slot: ${format(new Date(b.slot_start), "EEEE HH:mm")}.`;
-      const r = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+      const r = await proxyFetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${secrets.aiApiKey}` },
         body: JSON.stringify({
@@ -153,7 +154,7 @@ Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene des
           temperature: 0.7,
         }),
       });
-      const j = await r.json() as { choices?: { message?: { content?: string } }[]; error?: { message?: string } };
+      const j = await r.json<{ choices?: { message?: { content?: string } }[]; error?: { message?: string } }>();
       if (!r.ok) throw new Error(j.error?.message ?? "LLM call failed.");
       const content = j.choices?.[0]?.message?.content ?? "{}";
       const parsed = JSON.parse(extractJSON(content));

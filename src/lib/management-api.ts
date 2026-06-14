@@ -1,8 +1,9 @@
 /**
  * Thin wrapper around the Supabase Management API.
- * Uses the user's Personal Access Token (PAT). All calls happen from the
- * browser directly against api.supabase.com — we never proxy.
+ * Browser → /api/proxy (same-origin) → api.supabase.com (no CORS issues).
  */
+
+import { proxyFetch } from "./proxy-fetch";
 
 const BASE = "https://api.supabase.com";
 
@@ -12,14 +13,19 @@ export class ManagementApiError extends Error {
   }
 }
 
-async function call<T>(pat: string, path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
+async function call<T>(
+  pat: string,
+  path: string,
+  init: { method?: string; body?: string; headers?: Record<string, string> } = {},
+): Promise<T> {
+  const res = await proxyFetch(`${BASE}${path}`, {
+    method: init.method ?? "GET",
     headers: {
       Authorization: `Bearer ${pat}`,
       "Content-Type": "application/json",
       ...(init.headers ?? {}),
     },
+    body: init.body,
   });
   const text = await res.text();
   if (!res.ok) {
