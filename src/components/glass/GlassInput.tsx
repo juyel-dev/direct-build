@@ -6,7 +6,7 @@ export const GlassInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLI
     <input
       ref={ref}
       className={cn(
-        "glass-input w-full h-11 rounded-xl px-3.5 text-sm text-foreground placeholder:text-muted-foreground",
+        "glass-input block w-full min-w-0 h-11 rounded-xl px-3.5 text-sm text-foreground placeholder:text-muted-foreground",
         "focus:outline-none focus:glass-input-focus",
         "font-mono [&[type='password']]:font-mono",
         className,
