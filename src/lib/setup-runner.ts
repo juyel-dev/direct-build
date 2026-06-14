@@ -12,6 +12,7 @@ import {
   type Providers,
   type Secrets,
 } from "./config-store";
+import { proxyFetch } from "./proxy-fetch";
 
 export type SetupStepStatus = "pending" | "running" | "done" | "error";
 export interface SetupStep {
