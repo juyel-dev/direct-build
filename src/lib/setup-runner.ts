@@ -48,7 +48,7 @@ export async function runSetup(
 
   try {
     await stepRunner({ key: "verify", label: "Verify project access" }, async () => {
-      const r = await fetch(`https://api.supabase.com/v1/projects/${ref}`, {
+      const r = await proxyFetch(`https://api.supabase.com/v1/projects/${ref}`, {
         headers: { Authorization: `Bearer ${secrets.supabasePAT}` },
       });
       if (!r.ok) throw new Error(`Project not reachable (${r.status})`);
