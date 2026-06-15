@@ -72,13 +72,18 @@ export async function runSetup(
     }
 
     await stepRunner({ key: "bucket", label: "Create storage bucket" }, async () => {
-      const buckets = await listBuckets(secrets.supabasePAT, ref).catch(() => [] as { name: string }[]);
+      if (!secrets.supabaseServiceKey) {
+        throw new Error("Service role key required to manage storage buckets.");
+      }
+      const buckets = await listBuckets(secrets.supabaseUrl, secrets.supabaseServiceKey).catch(
+        () => [] as { name: string }[],
+      );
       if (buckets.some((b) => b.name === STORAGE_BUCKET)) {
         status.storageBucketReady = true;
         saveInstallStatus(status);
         return `Bucket "${STORAGE_BUCKET}" already exists.`;
       }
-      await createBucket(secrets.supabasePAT, ref, STORAGE_BUCKET, true);
+      await createBucket(secrets.supabaseUrl, secrets.supabaseServiceKey, STORAGE_BUCKET, true);
       status.storageBucketReady = true;
       saveInstallStatus(status);
       return `Created bucket "${STORAGE_BUCKET}".`;
