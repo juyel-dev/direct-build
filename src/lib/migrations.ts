@@ -131,6 +131,21 @@ create table if not exists public.system_events (
 );
 
 -- app_settings (singleton)
+-- Guard: if an older install created this table with a uuid id, drop it so
+-- the canonical int-singleton shape below can be re-created cleanly.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'app_settings'
+      and column_name = 'id'
+      and data_type <> 'integer'
+  ) then
+    execute 'drop table public.app_settings cascade';
+  end if;
+end $$;
+
 create table if not exists public.app_settings (
   id int primary key default 1 check (id = 1),
   installer_version text not null default '1.0.0',
