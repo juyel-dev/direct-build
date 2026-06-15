@@ -63,20 +63,47 @@ export interface StorageBucket {
   public: boolean;
 }
 
-export async function listBuckets(pat: string, ref: string): Promise<StorageBucket[]> {
-  return call<StorageBucket[]>(pat, `/v1/projects/${ref}/storage/buckets`);
+/**
+ * Storage buckets are managed via the project's own Storage REST API
+ * (https://<ref>.supabase.co/storage/v1/bucket), authenticated with the
+ * service-role key. The Management API does not expose a stable
+ * `/v1/projects/{ref}/storage/buckets` endpoint (returns 404).
+ */
+export async function listBuckets(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<StorageBucket[]> {
+  const base = supabaseUrl.replace(/\/+$/, "");
+  const r = await proxyFetch(`${base}/storage/v1/bucket`, {
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+    },
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Storage list ${r.status}: ${text.slice(0, 200)}`);
+  return JSON.parse(text) as StorageBucket[];
 }
 
 export async function createBucket(
-  pat: string,
-  ref: string,
+  supabaseUrl: string,
+  serviceRoleKey: string,
   name: string,
   isPublic = true,
 ): Promise<unknown> {
-  return call(pat, `/v1/projects/${ref}/storage/buckets`, {
+  const base = supabaseUrl.replace(/\/+$/, "");
+  const r = await proxyFetch(`${base}/storage/v1/bucket`, {
     method: "POST",
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+      "content-type": "application/json",
+    },
     body: JSON.stringify({ id: name, name, public: isPublic }),
   });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Storage create ${r.status}: ${text.slice(0, 200)}`);
+  return text ? JSON.parse(text) : {};
 }
 
 export async function setProjectSecrets(
