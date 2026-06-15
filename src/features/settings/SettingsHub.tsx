@@ -395,6 +395,31 @@ function SaveBar({
   );
 }
 
+/**
+ * Detect what kind of Supabase API key the user pasted.
+ *  - "anon"     → legacy JWT with role=anon, or new sb_publishable_…
+ *  - "service"  → legacy JWT with role=service_role, or new sb_secret_…
+ *  - "unknown"  → can't tell (treat as user-intended)
+ */
+type KeyKind = "anon" | "service" | "unknown";
+function classifySupabaseKey(raw: string): KeyKind {
+  const k = raw.trim();
+  if (!k) return "unknown";
+  if (k.startsWith("sb_publishable_")) return "anon";
+  if (k.startsWith("sb_secret_")) return "service";
+  // Legacy JWT: header.payload.signature
+  const parts = k.split(".");
+  if (parts.length !== 3) return "unknown";
+  try {
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.length % 4 === 0 ? b64 : b64 + "=".repeat(4 - (b64.length % 4));
+    const json = JSON.parse(atob(pad)) as { role?: string };
+    if (json.role === "anon") return "anon";
+    if (json.role === "service_role") return "service";
+  } catch { /* not a JWT */ }
+  return "unknown";
+}
+
 function SupabaseSheet({
   open, onClose, secrets, persist,
 }: { open: boolean; onClose: () => void; secrets: Secrets; persist: (s: Secrets) => Promise<{ ok: boolean; err?: string }> }) {
@@ -403,17 +428,47 @@ function SupabaseSheet({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  useEffect(() => { if (open) { setDraft(secrets); setSaved(false); setErr(null); }}, [open, secrets]);
+  useEffect(() => { if (open) { setDraft(secrets); setSaved(false); setErr(null); setNotice(null); }}, [open, secrets]);
 
   const needsPass = !getSessionPassphrase();
   const ref = projectRefFromUrl(draft.supabaseUrl);
 
+  const anonKind = classifySupabaseKey(draft.supabaseAnonKey);
+  const serviceKind = classifySupabaseKey(draft.supabaseServiceKey);
+  const anonWarn = anonKind === "service"
+    ? "This looks like a service_role key. Move it to the Service role field below."
+    : null;
+  const serviceWarn = serviceKind === "anon"
+    ? "This looks like an anon/publishable key. Move it to the Anon field above."
+    : null;
+
   async function save() {
     setSaving(true);
     setErr(null);
+    setNotice(null);
+    let next = draft;
+    // Auto-swap if user obviously put each key in the wrong field
+    if (anonKind === "service" && serviceKind === "anon") {
+      next = { ...draft, supabaseAnonKey: draft.supabaseServiceKey, supabaseServiceKey: draft.supabaseAnonKey };
+      setDraft(next);
+      setNotice("Detected swapped keys — fixed automatically.");
+    } else if (anonKind === "service" && !draft.supabaseServiceKey) {
+      next = { ...draft, supabaseServiceKey: draft.supabaseAnonKey, supabaseAnonKey: "" };
+      setDraft(next);
+      setNotice("That was a service_role key — moved it to the Service field. Paste the anon key now.");
+      setSaving(false);
+      return;
+    } else if (serviceKind === "anon" && !draft.supabaseAnonKey) {
+      next = { ...draft, supabaseAnonKey: draft.supabaseServiceKey, supabaseServiceKey: "" };
+      setDraft(next);
+      setNotice("That was an anon key — moved it to the Anon field. Paste the service_role key now.");
+      setSaving(false);
+      return;
+    }
     if (needsPass) setSessionPassphraseSafely(passphrase);
-    const res = await persist(draft);
+    const res = await persist(next);
     setSaving(false);
     if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1600); }
     else setErr(res.err ?? "Save failed.");
@@ -425,7 +480,12 @@ function SupabaseSheet({
       onOpenChange={(v) => !v && onClose()}
       title="Supabase project"
       description="Settings ▸ API in your Supabase dashboard."
-      footer={<SaveBar onSave={save} onClose={onClose} saving={saving} saved={saved} error={err} />}
+      footer={
+        <div className="flex flex-col gap-2">
+          {notice && <p className="text-xs text-primary">{notice}</p>}
+          <SaveBar onSave={save} onClose={onClose} saving={saving} saved={saved} error={err} />
+        </div>
+      }
     >
       <div className="flex flex-col gap-4">
         <Field label="Project URL" hint={ref ? `ref: ${ref}` : ".supabase.co"}>
@@ -437,11 +497,19 @@ function SupabaseSheet({
             autoComplete="off"
           />
         </Field>
-        <Field label="Anon (public) key">
-          <SecretInput value={draft.supabaseAnonKey} onChange={(v) => setDraft({ ...draft, supabaseAnonKey: v.trim() })} placeholder="eyJhbGc..." />
+        <Field
+          label="Anon (public) key"
+          hint={anonKind === "anon" ? "✓ anon key detected" : anonKind === "service" ? null : "JWT eyJ… or sb_publishable_…"}
+        >
+          <SecretInput value={draft.supabaseAnonKey} onChange={(v) => setDraft({ ...draft, supabaseAnonKey: v.trim() })} placeholder="eyJhbGc... or sb_publishable_..." />
+          {anonWarn && <p className="mt-1 text-xs text-amber-400 flex items-start gap-1"><ExclamationTriangleIcon className="h-3.5 w-3.5 mt-0.5 shrink-0" />{anonWarn}</p>}
         </Field>
-        <Field label="Service role key">
-          <SecretInput value={draft.supabaseServiceKey} onChange={(v) => setDraft({ ...draft, supabaseServiceKey: v.trim() })} placeholder="eyJhbGc..." />
+        <Field
+          label="Service role key"
+          hint={serviceKind === "service" ? "✓ service_role key detected" : serviceKind === "anon" ? null : "JWT eyJ… or sb_secret_…"}
+        >
+          <SecretInput value={draft.supabaseServiceKey} onChange={(v) => setDraft({ ...draft, supabaseServiceKey: v.trim() })} placeholder="eyJhbGc... or sb_secret_..." />
+          {serviceWarn && <p className="mt-1 text-xs text-amber-400 flex items-start gap-1"><ExclamationTriangleIcon className="h-3.5 w-3.5 mt-0.5 shrink-0" />{serviceWarn}</p>}
         </Field>
         <Field
           label="Personal access token"
