@@ -2,6 +2,7 @@ import type { Providers, Secrets } from "./config-store";
 import { getProject } from "./management-api";
 import { proxyFetch } from "./proxy-fetch";
 import { projectRefFromUrl } from "./config-store";
+import { classifySupabaseKey, isJwtSupabaseKey, supabaseAuthHeaders } from "./supabase-keys";
 
 export interface TestResult {
   ok: boolean;
@@ -10,30 +11,33 @@ export interface TestResult {
 }
 
 export async function testSupabaseRest(
-  secrets: Pick<Secrets, "supabaseUrl" | "supabaseAnonKey">,
+  secrets: Pick<Secrets, "supabaseUrl" | "supabaseAnonKey" | "supabaseServiceKey">,
 ): Promise<TestResult> {
   if (!secrets.supabaseUrl || !secrets.supabaseAnonKey)
     return { ok: false, detail: "Add the URL and anon key first." };
   try {
     const base = secrets.supabaseUrl.replace(/\/+$/, "");
     const key = secrets.supabaseAnonKey.trim();
+    const keyKind = classifySupabaseKey(key);
 
-    // PostgREST requires BOTH `apikey` AND `Authorization: Bearer` for JWT keys —
-    // sending only `apikey` returns 401 even for a valid anon JWT. For new-format
-    // publishable keys (sb_publishable_…), which are NOT JWTs, send only `apikey`
-    // since Bearer-validation would reject the non-JWT value.
-    const isJwt = /^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key);
-    const headers: Record<string, string> = { apikey: key };
-    if (isJwt) headers.authorization = `Bearer ${key}`;
+    if (keyKind === "service") {
+      return {
+        ok: false,
+        detail: "Anon field contains a service_role key. Move it to Service role; REST test uses only the anon/public key.",
+      };
+    }
 
-    const r = await proxyFetch(`${base}/rest/v1/`, { headers });
+    const r = await proxyFetch(`${base}/rest/v1/`, { headers: supabaseAuthHeaders(key) });
     if (r.status >= 200 && r.status < 400) {
-      return { ok: true, detail: `REST reachable (HTTP ${r.status}).` };
+      const serviceNote = secrets.supabaseServiceKey?.trim()
+        ? " Service key present but not used for REST anon test."
+        : "";
+      return { ok: true, detail: `REST reachable with anon/public key (HTTP ${r.status}).${serviceNote}` };
     }
     if (r.status === 401) {
       return {
         ok: false,
-        detail: isJwt
+        detail: isJwtSupabaseKey(key)
           ? "Bad anon key (401). The JWT was rejected — copy the anon/public key from Supabase Settings → API."
           : "Bad anon key (401). Copy the anon/public (or sb_publishable_…) key from Supabase Settings → API.",
       };
