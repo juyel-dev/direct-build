@@ -16,20 +16,26 @@ export async function testSupabaseRest(
     return { ok: false, detail: "Add the URL and anon key first." };
   try {
     const base = secrets.supabaseUrl.replace(/\/+$/, "");
-    const key = secrets.supabaseAnonKey;
-    // PostgREST accepts the key via the `apikey` header. We deliberately omit
-    // `Authorization: Bearer …` because new-format publishable keys
-    // (sb_publishable_…) aren't JWTs and Bearer-validation rejects them with
-    // 401 even when `apikey` is correct. JWT anon keys also work with just apikey.
-    const r = await proxyFetch(`${base}/rest/v1/`, { headers: { apikey: key } });
+    const key = secrets.supabaseAnonKey.trim();
+
+    // PostgREST requires BOTH `apikey` AND `Authorization: Bearer` for JWT keys —
+    // sending only `apikey` returns 401 even for a valid anon JWT. For new-format
+    // publishable keys (sb_publishable_…), which are NOT JWTs, send only `apikey`
+    // since Bearer-validation would reject the non-JWT value.
+    const isJwt = /^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key);
+    const headers: Record<string, string> = { apikey: key };
+    if (isJwt) headers.authorization = `Bearer ${key}`;
+
+    const r = await proxyFetch(`${base}/rest/v1/`, { headers });
     if (r.status >= 200 && r.status < 400) {
       return { ok: true, detail: `REST reachable (HTTP ${r.status}).` };
     }
     if (r.status === 401) {
       return {
         ok: false,
-        detail:
-          "Bad anon key (401). Copy the anon/public (or sb_publishable_…) key from Supabase Settings → API.",
+        detail: isJwt
+          ? "Bad anon key (401). The JWT was rejected — copy the anon/public key from Supabase Settings → API."
+          : "Bad anon key (401). Copy the anon/public (or sb_publishable_…) key from Supabase Settings → API.",
       };
     }
     const body = (await r.text()).slice(0, 160);
