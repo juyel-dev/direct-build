@@ -405,31 +405,6 @@ function SaveBar({
   );
 }
 
-/**
- * Detect what kind of Supabase API key the user pasted.
- *  - "anon"     → legacy JWT with role=anon, or new sb_publishable_…
- *  - "service"  → legacy JWT with role=service_role, or new sb_secret_…
- *  - "unknown"  → can't tell (treat as user-intended)
- */
-type KeyKind = "anon" | "service" | "unknown";
-function classifySupabaseKey(raw: string): KeyKind {
-  const k = raw.trim();
-  if (!k) return "unknown";
-  if (k.startsWith("sb_publishable_")) return "anon";
-  if (k.startsWith("sb_secret_")) return "service";
-  // Legacy JWT: header.payload.signature
-  const parts = k.split(".");
-  if (parts.length !== 3) return "unknown";
-  try {
-    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const pad = b64.length % 4 === 0 ? b64 : b64 + "=".repeat(4 - (b64.length % 4));
-    const json = JSON.parse(atob(pad)) as { role?: string };
-    if (json.role === "anon") return "anon";
-    if (json.role === "service_role") return "service";
-  } catch { /* not a JWT */ }
-  return "unknown";
-}
-
 function SupabaseSheet({
   open, onClose, secrets, persist,
 }: { open: boolean; onClose: () => void; secrets: Secrets; persist: (s: Secrets) => Promise<{ ok: boolean; err?: string }> }) {
