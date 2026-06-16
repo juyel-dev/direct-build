@@ -8,9 +8,12 @@ import {
   setSessionPassphrase,
   loadProviders,
   saveProviders,
+  ProvidersSchema,
   loadBrand,
   saveBrand,
+  BrandSchema,
   loadInstallStatus,
+  InstallStatusSchema,
   wipeAll,
   projectRefFromUrl,
   type Secrets,
@@ -24,6 +27,7 @@ import { SecretInput } from "@/components/glass/SecretInput";
 import { BottomSheet } from "@/components/glass/BottomSheet";
 import {
   testSupabaseRest,
+  testSupabaseServiceRole,
   testManagementApi,
   testFacebook,
   testLLM,
@@ -31,6 +35,7 @@ import {
 } from "@/lib/test-connections";
 import { runSetup, type SetupStep } from "@/lib/setup-runner";
 import { invalidateUserSupabase } from "@/lib/user-supabase";
+import { classifySupabaseKey } from "@/lib/supabase-keys";
 import {
   CheckCircleIcon,
   ExclamationTriangleIcon,
@@ -71,14 +76,20 @@ export function SettingsHub() {
   const [unlockErr, setUnlockErr] = useState<string | null>(null);
 
   const [secrets, setSecrets] = useState<Secrets>(EMPTY_SECRETS);
-  const [providers, setProviders] = useState<Providers>(() => loadProviders());
-  const [brand, setBrand] = useState<Brand>(() => loadBrand());
-  const [installStatus, setInstallStatus] = useState(() => loadInstallStatus());
+  const [providers, setProviders] = useState<Providers>(() => ProvidersSchema.parse({
+    llm: { type: "openrouter", baseUrl: "https://openrouter.ai/api/v1", model: "meta-llama/llama-3.3-70b-instruct:free" },
+    image: { type: "pollinations", baseUrl: "", model: "flux" },
+  }));
+  const [brand, setBrand] = useState<Brand>(() => BrandSchema.parse({}));
+  const [installStatus, setInstallStatus] = useState(() => InstallStatusSchema.parse({}));
 
   const [sheet, setSheet] = useState<SheetKey>(null);
 
   useEffect(() => {
     (async () => {
+      setProviders(loadProviders());
+      setBrand(loadBrand());
+      setInstallStatus(loadInstallStatus());
       if (!hasStoredSecrets()) return;
       const sp = getSessionPassphrase();
       if (!sp) {
@@ -395,31 +406,6 @@ function SaveBar({
   );
 }
 
-/**
- * Detect what kind of Supabase API key the user pasted.
- *  - "anon"     → legacy JWT with role=anon, or new sb_publishable_…
- *  - "service"  → legacy JWT with role=service_role, or new sb_secret_…
- *  - "unknown"  → can't tell (treat as user-intended)
- */
-type KeyKind = "anon" | "service" | "unknown";
-function classifySupabaseKey(raw: string): KeyKind {
-  const k = raw.trim();
-  if (!k) return "unknown";
-  if (k.startsWith("sb_publishable_")) return "anon";
-  if (k.startsWith("sb_secret_")) return "service";
-  // Legacy JWT: header.payload.signature
-  const parts = k.split(".");
-  if (parts.length !== 3) return "unknown";
-  try {
-    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const pad = b64.length % 4 === 0 ? b64 : b64 + "=".repeat(4 - (b64.length % 4));
-    const json = JSON.parse(atob(pad)) as { role?: string };
-    if (json.role === "anon") return "anon";
-    if (json.role === "service_role") return "service";
-  } catch { /* not a JWT */ }
-  return "unknown";
-}
-
 function SupabaseSheet({
   open, onClose, secrets, persist,
 }: { open: boolean; onClose: () => void; secrets: Secrets; persist: (s: Secrets) => Promise<{ ok: boolean; err?: string }> }) {
@@ -524,8 +510,9 @@ function SupabaseSheet({
           </Field>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-          <TestRow label="Test REST" run={() => testSupabaseRest(draft)} />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          <TestRow label="Test Anon key" run={() => testSupabaseRest(draft)} />
+          <TestRow label="Test Service role" run={() => testSupabaseServiceRole(draft)} />
           <TestRow label="Test Management API" run={() => testManagementApi(draft)} />
         </div>
       </div>

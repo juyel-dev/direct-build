@@ -4,6 +4,7 @@
  */
 
 import { proxyFetch } from "./proxy-fetch";
+import { supabaseAuthHeaders } from "./supabase-keys";
 
 const BASE = "https://api.supabase.com";
 
@@ -75,10 +76,7 @@ export async function listBuckets(
 ): Promise<StorageBucket[]> {
   const base = supabaseUrl.replace(/\/+$/, "");
   const r = await proxyFetch(`${base}/storage/v1/bucket`, {
-    headers: {
-      apikey: serviceRoleKey,
-      authorization: `Bearer ${serviceRoleKey}`,
-    },
+    headers: supabaseAuthHeaders(serviceRoleKey),
   });
   const text = await r.text();
   if (!r.ok) throw new Error(`Storage list ${r.status}: ${text.slice(0, 200)}`);
@@ -95,8 +93,7 @@ export async function createBucket(
   const r = await proxyFetch(`${base}/storage/v1/bucket`, {
     method: "POST",
     headers: {
-      apikey: serviceRoleKey,
-      authorization: `Bearer ${serviceRoleKey}`,
+      ...supabaseAuthHeaders(serviceRoleKey),
       "content-type": "application/json",
     },
     body: JSON.stringify({ id: name, name, public: isPublic }),
