@@ -75,14 +75,20 @@ export function SettingsHub() {
   const [unlockErr, setUnlockErr] = useState<string | null>(null);
 
   const [secrets, setSecrets] = useState<Secrets>(EMPTY_SECRETS);
-  const [providers, setProviders] = useState<Providers>(() => loadProviders());
-  const [brand, setBrand] = useState<Brand>(() => loadBrand());
-  const [installStatus, setInstallStatus] = useState(() => loadInstallStatus());
+  const [providers, setProviders] = useState<Providers>(() => ProvidersSchema.parse({
+    llm: { type: "openrouter", baseUrl: "https://openrouter.ai/api/v1", model: "meta-llama/llama-3.3-70b-instruct:free" },
+    image: { type: "pollinations", baseUrl: "", model: "flux" },
+  }));
+  const [brand, setBrand] = useState<Brand>(() => BrandSchema.parse({}));
+  const [installStatus, setInstallStatus] = useState(() => InstallStatusSchema.parse({}));
 
   const [sheet, setSheet] = useState<SheetKey>(null);
 
   useEffect(() => {
     (async () => {
+      setProviders(loadProviders());
+      setBrand(loadBrand());
+      setInstallStatus(loadInstallStatus());
       if (!hasStoredSecrets()) return;
       const sp = getSessionPassphrase();
       if (!sp) {
