@@ -511,7 +511,7 @@ function SupabaseSheet({
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-          <TestRow label="Test Anon REST" run={() => testSupabaseRest(draft)} />
+          <TestRow label="Test Anon key" run={() => testSupabaseRest(draft)} />
           <TestRow label="Test Service role" run={() => testSupabaseServiceRole(draft)} />
           <TestRow label="Test Management API" run={() => testManagementApi(draft)} />
         </div>
