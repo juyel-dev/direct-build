@@ -8,9 +8,12 @@ import {
   setSessionPassphrase,
   loadProviders,
   saveProviders,
+  ProvidersSchema,
   loadBrand,
   saveBrand,
+  BrandSchema,
   loadInstallStatus,
+  InstallStatusSchema,
   wipeAll,
   projectRefFromUrl,
   type Secrets,
@@ -31,6 +34,7 @@ import {
 } from "@/lib/test-connections";
 import { runSetup, type SetupStep } from "@/lib/setup-runner";
 import { invalidateUserSupabase } from "@/lib/user-supabase";
+import { classifySupabaseKey } from "@/lib/supabase-keys";
 import {
   CheckCircleIcon,
   ExclamationTriangleIcon,
