@@ -27,6 +27,7 @@ import { SecretInput } from "@/components/glass/SecretInput";
 import { BottomSheet } from "@/components/glass/BottomSheet";
 import {
   testSupabaseRest,
+  testSupabaseServiceRole,
   testManagementApi,
   testFacebook,
   testLLM,
@@ -509,8 +510,9 @@ function SupabaseSheet({
           </Field>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-          <TestRow label="Test REST" run={() => testSupabaseRest(draft)} />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          <TestRow label="Test Anon REST" run={() => testSupabaseRest(draft)} />
+          <TestRow label="Test Service role" run={() => testSupabaseServiceRole(draft)} />
           <TestRow label="Test Management API" run={() => testManagementApi(draft)} />
         </div>
       </div>
