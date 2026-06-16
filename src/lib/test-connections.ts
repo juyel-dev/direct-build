@@ -1,5 +1,5 @@
 import type { Providers, Secrets } from "./config-store";
-import { getProject } from "./management-api";
+import { getProject, listBuckets } from "./management-api";
 import { proxyFetch } from "./proxy-fetch";
 import { projectRefFromUrl } from "./config-store";
 import { classifySupabaseKey, isJwtSupabaseKey, supabaseAuthHeaders } from "./supabase-keys";
@@ -44,6 +44,24 @@ export async function testSupabaseRest(
     }
     const body = (await r.text()).slice(0, 160);
     return { ok: false, detail: `HTTP ${r.status} ${body}` };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function testSupabaseServiceRole(
+  secrets: Pick<Secrets, "supabaseUrl" | "supabaseServiceKey">,
+): Promise<TestResult> {
+  if (!secrets.supabaseUrl || !secrets.supabaseServiceKey) {
+    return { ok: false, detail: "Add the URL and service_role key first." };
+  }
+  const key = secrets.supabaseServiceKey.trim();
+  if (classifySupabaseKey(key) === "anon") {
+    return { ok: false, detail: "Service role field contains an anon/public key." };
+  }
+  try {
+    const buckets = await listBuckets(secrets.supabaseUrl, key);
+    return { ok: true, detail: `Service role works — storage reachable (${buckets.length} buckets).` };
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : String(e) };
   }
