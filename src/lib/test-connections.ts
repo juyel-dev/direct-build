@@ -27,18 +27,18 @@ export async function testSupabaseRest(
       };
     }
 
-    const r = await proxyFetch(`${base}/rest/v1/`, { headers: supabaseAuthHeaders(key) });
+    const r = await proxyFetch(`${base}/auth/v1/settings`, { headers: supabaseAuthHeaders(key) });
     if (r.status >= 200 && r.status < 400) {
       const serviceNote = secrets.supabaseServiceKey?.trim()
-        ? " Service key present but not used for REST anon test."
+        ? " Service key present but not used for anon test."
         : "";
-      return { ok: true, detail: `REST reachable with anon/public key (HTTP ${r.status}).${serviceNote}` };
+      return { ok: true, detail: `Anon/public key valid (HTTP ${r.status}).${serviceNote}` };
     }
     if (r.status === 401) {
       return {
         ok: false,
         detail: isJwtSupabaseKey(key)
-          ? "Bad anon key (401). The JWT was rejected — copy the anon/public key from Supabase Settings → API."
+          ? "Bad anon key (401). The anon JWT was rejected — copy the anon/public key from Supabase Settings → API."
           : "Bad anon key (401). Copy the anon/public (or sb_publishable_…) key from Supabase Settings → API.",
       };
     }
