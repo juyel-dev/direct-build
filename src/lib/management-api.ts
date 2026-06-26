@@ -9,7 +9,11 @@ import { supabaseAuthHeaders } from "./supabase-keys";
 const BASE = "https://api.supabase.com";
 
 export class ManagementApiError extends Error {
-  constructor(public status: number, public body: string, message: string) {
+  constructor(
+    public status: number,
+    public body: string,
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -36,7 +40,7 @@ async function call<T>(
       `Supabase Management API ${res.status}: ${text.slice(0, 200)}`,
     );
   }
-  return (text ? JSON.parse(text) : ({} as T));
+  return text ? JSON.parse(text) : ({} as T);
 }
 
 export interface ProjectInfo {
@@ -113,4 +117,52 @@ export async function setProjectSecrets(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export interface DeployFunctionInput {
+  slug: string;
+  name: string;
+  entrypointPath: string;
+  verifyJwt: boolean;
+  files: { name: string; content: string }[];
+}
+
+export async function deployEdgeFunction(
+  pat: string,
+  ref: string,
+  fn: DeployFunctionInput,
+): Promise<unknown> {
+  const boundary = `----aurora-${crypto.randomUUID()}`;
+  const metadata = {
+    name: fn.name,
+    entrypoint_path: fn.entrypointPath,
+    verify_jwt: fn.verifyJwt,
+  };
+  const body = [
+    part(boundary, "metadata", JSON.stringify(metadata)),
+    ...fn.files.map((file) =>
+      part(boundary, "file", file.content, file.name, "application/typescript"),
+    ),
+    `--${boundary}--\r\n`,
+  ].join("");
+
+  return call(pat, `/v1/projects/${ref}/functions/deploy?slug=${encodeURIComponent(fn.slug)}`, {
+    method: "POST",
+    headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+    body,
+  });
+}
+
+function part(
+  boundary: string,
+  name: string,
+  content: string,
+  filename?: string,
+  contentType?: string,
+) {
+  const disposition = filename
+    ? `Content-Disposition: form-data; name="${name}"; filename="${filename}"`
+    : `Content-Disposition: form-data; name="${name}"`;
+  const type = contentType ? `Content-Type: ${contentType}\r\n` : "";
+  return `--${boundary}\r\n${disposition}\r\n${type}\r\n${content}\r\n`;
 }

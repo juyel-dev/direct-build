@@ -245,4 +245,29 @@ grant execute on function public.claim_jobs(int, text) to anon, authenticated, s
 insert into public._migrations (id, name) values (1, 'init') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 2,
+    name: "automation_runtime",
+    sql: `
+-- Automation runtime support
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+alter table public.jobs
+  add column if not exists completed_at timestamptz;
+
+create index if not exists idx_jobs_kind_page_created on public.jobs (kind, page_id, created_at desc);
+create index if not exists idx_briefs_publish_due on public.content_briefs (page_id, slot_start, status)
+  where status in ('approved','scheduled');
+
+update public.app_settings
+set schema_version = 2,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('automation_runtime', 'edge_cron'),
+    updated_at = now()
+where id = 1;
+
+-- Record migration
+insert into public._migrations (id, name) values (2, 'automation_runtime') on conflict (id) do nothing;
+`,
+  },
 ];

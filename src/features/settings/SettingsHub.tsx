@@ -143,7 +143,7 @@ export function SettingsHub() {
     facebook: !!(secrets.facebookPageId && secrets.facebookPageToken),
     llm: !!(providers.llm.model && (providers.llm.type === "ollama" || providers.llm.type === "lm_studio" || secrets.aiApiKey)),
     image: !!providers.image.model,
-    setup: installStatus.schemaVersion > 0 && installStatus.storageBucketReady,
+    setup: installStatus.schemaVersion > 0 && installStatus.storageBucketReady && installStatus.edgeFunctionsReady,
   }), [secrets, providers, installStatus]);
 
   if (needsUnlock) {
@@ -225,6 +225,7 @@ export function SettingsHub() {
       <SetupCard
         secrets={secrets}
         providers={providers}
+        brand={brand}
         onStatus={() => setInstallStatus(loadInstallStatus())}
       />
 
@@ -783,8 +784,8 @@ function BrandSheet({
 /* ──────────────────────────────── Setup runner ──────────────────────────────── */
 
 function SetupCard({
-  secrets, providers, onStatus,
-}: { secrets: Secrets; providers: Providers; onStatus: () => void }) {
+  secrets, providers, brand, onStatus,
+}: { secrets: Secrets; providers: Providers; brand: Brand; onStatus: () => void }) {
   const [steps, setSteps] = useState<SetupStep[]>([]);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
@@ -796,7 +797,7 @@ function SetupCard({
       setErr("Add your Supabase URL and PAT first."); return;
     }
     setRunning(true);
-    const result = await runSetup(secrets, providers, (step) => {
+    const result = await runSetup(secrets, providers, brand, (step) => {
       setSteps((prev) => {
         const idx = prev.findIndex((p) => p.key === step.key);
         if (idx === -1) return [...prev, step];

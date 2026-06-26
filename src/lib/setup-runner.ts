@@ -1,14 +1,17 @@
 import {
   createBucket,
+  deployEdgeFunction,
   listBuckets,
   runSql,
   setProjectSecrets,
 } from "./management-api";
+import { AURORA_WORKER_FUNCTION } from "./edge-functions";
 import { MIGRATIONS } from "./migrations";
 import {
   loadInstallStatus,
   projectRefFromUrl,
   saveInstallStatus,
+  type Brand,
   type Providers,
   type Secrets,
 } from "./config-store";
@@ -29,6 +32,7 @@ const STORAGE_BUCKET = "generated-images";
 export async function runSetup(
   secrets: Secrets,
   providers: Providers,
+  brand: Brand,
   onUpdate: StepUpdate,
 ): Promise<{ ok: boolean; error?: string }> {
   const ref = projectRefFromUrl(secrets.supabaseUrl);
@@ -89,8 +93,13 @@ export async function runSetup(
       return `Created bucket "${STORAGE_BUCKET}".`;
     });
 
+    const automationSecret = crypto.randomUUID();
+
     await stepRunner({ key: "secrets", label: "Push secrets to project" }, async () => {
       const toSet: Record<string, string> = {
+        FBAI_SUPABASE_URL: secrets.supabaseUrl,
+        FBAI_SUPABASE_SERVICE_ROLE_KEY: secrets.supabaseServiceKey,
+        FBAI_CRON_SECRET: automationSecret,
         FBAI_LLM_PROVIDER: providers.llm.type,
         FBAI_LLM_MODEL: providers.llm.model,
         FBAI_IMAGE_PROVIDER: providers.image.type,
@@ -124,10 +133,85 @@ export async function runSetup(
       return `Seeded page ${j.name} (${j.id}).`;
     });
 
+    await stepRunner({ key: "brand-sync", label: "Sync brand automation settings" }, async () => {
+      if (!secrets.facebookPageId) return "Skipped — no Facebook page configured yet.";
+      const promptOverrides = sqlLiteral(
+        JSON.stringify({
+          brandName: brand.brandName,
+          audience: brand.audience,
+          topics: brand.topics,
+        }),
+      );
+      const windows = sqlLiteral(JSON.stringify(brand.postingWindows));
+      const sql = `
+update public.pages
+set default_brand_voice = ${sqlLiteral(brand.voice)},
+    default_posting_windows = ${windows}::jsonb,
+    posting_mode = ${sqlLiteral(brand.postingMode)},
+    max_posts_per_day = ${Math.max(1, Math.min(10, Number(brand.maxPostsPerDay) || 1))},
+    prompt_overrides = ${promptOverrides}::jsonb
+where fb_page_id = ${sqlLiteral(secrets.facebookPageId)};
+`;
+      await runSql(secrets.supabasePAT, ref, sql);
+      return `Synced ${brand.postingMode.replace("_", " ")} mode and ${brand.postingWindows.length} posting windows.`;
+    });
+
+    await stepRunner({ key: "edge-worker", label: "Deploy automation Edge Function" }, async () => {
+      await deployEdgeFunction(secrets.supabasePAT, ref, AURORA_WORKER_FUNCTION);
+      return `Deployed ${AURORA_WORKER_FUNCTION.slug}.`;
+    });
+
+    await stepRunner({ key: "cron", label: "Schedule automation cron" }, async () => {
+      const functionUrl = `${secrets.supabaseUrl.replace(/\/+$/, "")}/functions/v1/${AURORA_WORKER_FUNCTION.slug}`;
+      await runSql(
+        secrets.supabasePAT,
+        ref,
+        buildCronSql(functionUrl, secrets.supabaseAnonKey, automationSecret),
+      );
+      status.edgeFunctionsReady = true;
+      saveInstallStatus(status);
+      return "Scheduled worker every minute via pg_cron.";
+    });
+
     status.completedAt = new Date().toISOString();
     saveInstallStatus(status);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+function buildCronSql(functionUrl: string, anonKey: string, automationSecret: string) {
+  const headers = JSON.stringify({
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${anonKey}`,
+    apikey: anonKey,
+    "x-automation-secret": automationSecret,
+  });
+  const body = JSON.stringify({ trigger: "pg_cron" });
+  return `
+do $$
+begin
+  perform cron.unschedule('aurora-worker-every-minute');
+exception when others then
+  null;
+end $$;
+
+select cron.schedule(
+  'aurora-worker-every-minute',
+  '* * * * *',
+  $cron$
+    select net.http_post(
+      url := ${sqlLiteral(functionUrl)},
+      headers := ${sqlLiteral(headers)}::jsonb,
+      body := ${sqlLiteral(body)}::jsonb,
+      timeout_milliseconds := 30000
+    );
+  $cron$
+);
+`;
+}
+
+function sqlLiteral(value: string) {
+  return `'${value.replace(/'/g, "''")}'`;
 }

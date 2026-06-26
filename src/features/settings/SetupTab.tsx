@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { GlassPanel } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
-import { loadProviders, loadSecrets, getSessionPassphrase, loadInstallStatus } from "@/lib/config-store";
+import { loadBrand, loadProviders, loadSecrets, getSessionPassphrase, loadInstallStatus } from "@/lib/config-store";
 import { runSetup, type SetupStep } from "@/lib/setup-runner";
 import {
   PlayIcon,
@@ -33,7 +33,7 @@ export function SetupTab() {
     }
     const providers = loadProviders();
     setRunning(true);
-    const result = await runSetup(secrets, providers, (step) => {
+    const result = await runSetup(secrets, providers, loadBrand(), (step) => {
       setSteps((prev) => {
         const idx = prev.findIndex((p) => p.key === step.key);
         if (idx === -1) return [...prev, step];
@@ -63,7 +63,7 @@ export function SetupTab() {
           <Badge ok={status.schemaVersion > 0}>schema v{status.schemaVersion}</Badge>
           <Badge ok={status.storageBucketReady}>storage bucket</Badge>
           <Badge ok={status.vaultReady}>project secrets</Badge>
-          <Badge ok={status.edgeFunctionsReady} warning>edge functions (phase 2)</Badge>
+          <Badge ok={status.edgeFunctionsReady}>edge cron</Badge>
         </div>
 
         {steps.length === 0 && !error && (
@@ -103,13 +103,13 @@ export function SetupTab() {
       </GlassPanel>
 
       <GlassPanel
-        title="Phase 2 — Edge functions"
-        description="The planner/worker/publisher Edge Functions still need to be deployed. The current build provisions everything the UI needs to plan, store, and review content. Automated publishing will be wired up once the Deno functions are bundled."
+        title="Automation runtime"
+        description="Setup deploys the planner/worker/publisher Edge Function and schedules it with pg_cron. Browser service worker support keeps open tabs fresh while Supabase runs the real background jobs."
       >
         <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
           <li><span className="text-foreground">planner</span> — generates a 7-day brief plan every 6h</li>
-          <li><span className="text-foreground">worker</span> — claims jobs (race-free SQL) every minute</li>
-          <li><span className="text-foreground">publisher</span> — pushes approved posts to Facebook Graph API</li>
+          <li><span className="text-foreground">worker</span> — claims jobs with race-free SQL every minute</li>
+          <li><span className="text-foreground">publisher</span> — publishes approved/scheduled posts and tracks engagement</li>
         </ul>
       </GlassPanel>
     </div>
