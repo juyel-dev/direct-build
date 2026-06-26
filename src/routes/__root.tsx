@@ -79,10 +79,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "Aurora — Facebook AI Autopilot" },
-      { name: "description", content: "Open-source AI Facebook automation. Bring your own Supabase, bring your own keys. Plans, generates, schedules, and publishes content without a backend you don't own." },
+      {
+        name: "description",
+        content:
+          "Open-source AI Facebook automation. Bring your own Supabase, bring your own keys. Plans, generates, schedules, and publishes content without a backend you don't own.",
+      },
       { name: "theme-color", content: "#0f1424" },
       { property: "og:title", content: "Aurora — Facebook AI Autopilot" },
-      { property: "og:description", content: "Bring your own backend. Bring your own keys. AI plans your Facebook week." },
+      {
+        property: "og:description",
+        content: "Bring your own backend. Bring your own keys. AI plans your Facebook week.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -90,7 +97,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "stylesheet", href: appCss },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap",
+      },
     ],
   }),
   shellComponent: RootShell,

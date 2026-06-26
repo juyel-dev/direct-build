@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { GlassPanel } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
-import { loadBrand, loadProviders, loadSecrets, getSessionPassphrase, loadInstallStatus } from "@/lib/config-store";
+import {
+  loadBrand,
+  loadProviders,
+  loadSecrets,
+  getSessionPassphrase,
+  loadInstallStatus,
+} from "@/lib/config-store";
 import { runSetup, type SetupStep } from "@/lib/setup-runner";
 import {
   PlayIcon,
@@ -54,7 +60,11 @@ export function SetupTab() {
         description="Provisions your Supabase project: extensions, schema, RLS, RPCs, storage bucket, project secrets. Idempotent — safe to re-run."
         action={
           <GlassButton variant="primary" loading={running} onClick={start}>
-            {steps.length === 0 ? <PlayIcon className="h-4 w-4" /> : <ArrowPathIcon className="h-4 w-4" />}
+            {steps.length === 0 ? (
+              <PlayIcon className="h-4 w-4" />
+            ) : (
+              <ArrowPathIcon className="h-4 w-4" />
+            )}
             {steps.length === 0 ? "Run Setup" : "Re-run"}
           </GlassButton>
         }
@@ -68,7 +78,9 @@ export function SetupTab() {
 
         {steps.length === 0 && !error && (
           <p className="text-sm text-muted-foreground">
-            Press Run Setup. The web app will call <code className="text-foreground/80">api.supabase.com</code> directly from your browser — no third party in the loop.
+            Press Run Setup. The web app will call{" "}
+            <code className="text-foreground/80">api.supabase.com</code> directly from your browser
+            — no third party in the loop.
           </p>
         )}
 
@@ -80,7 +92,9 @@ export function SetupTab() {
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium">{s.label}</div>
                   {s.detail && (
-                    <div className={`mt-0.5 text-xs ${s.status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+                    <div
+                      className={`mt-0.5 text-xs ${s.status === "error" ? "text-destructive" : "text-muted-foreground"}`}
+                    >
                       {s.detail}
                     </div>
                   )}
@@ -92,7 +106,8 @@ export function SetupTab() {
 
         {done && (
           <div className="mt-4 flex items-center gap-2 text-sm text-success">
-            <CheckCircleIcon className="h-5 w-5" /> Setup complete. You can now use Dashboard, Schedule, and Analytics.
+            <CheckCircleIcon className="h-5 w-5" /> Setup complete. You can now use Dashboard,
+            Schedule, and Analytics.
           </div>
         )}
         {error && (
@@ -107,9 +122,17 @@ export function SetupTab() {
         description="Setup deploys the planner/worker/publisher Edge Function and schedules it with pg_cron. Browser service worker support keeps open tabs fresh while Supabase runs the real background jobs."
       >
         <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
-          <li><span className="text-foreground">planner</span> — generates a 7-day brief plan every 6h</li>
-          <li><span className="text-foreground">worker</span> — claims jobs with race-free SQL every minute</li>
-          <li><span className="text-foreground">publisher</span> — publishes approved/scheduled posts and tracks engagement</li>
+          <li>
+            <span className="text-foreground">planner</span> — generates a 7-day brief plan every 6h
+          </li>
+          <li>
+            <span className="text-foreground">worker</span> — claims jobs with race-free SQL every
+            minute
+          </li>
+          <li>
+            <span className="text-foreground">publisher</span> — publishes approved/scheduled posts
+            and tracks engagement
+          </li>
         </ul>
       </GlassPanel>
     </div>
@@ -118,7 +141,9 @@ export function SetupTab() {
 
 function StatusDot({ status }: { status: SetupStep["status"] }) {
   if (status === "running")
-    return <span className="mt-1.5 h-2 w-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_var(--primary)]" />;
+    return (
+      <span className="mt-1.5 h-2 w-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_var(--primary)]" />
+    );
   if (status === "done")
     return <CheckCircleIcon className="h-4 w-4 text-success mt-0.5 shrink-0" />;
   if (status === "error")
@@ -126,11 +151,23 @@ function StatusDot({ status }: { status: SetupStep["status"] }) {
   return <span className="mt-1.5 h-2 w-2 rounded-full bg-muted-foreground/40" />;
 }
 
-function Badge({ ok, warning, children }: { ok: boolean; warning?: boolean; children: React.ReactNode }) {
+function Badge({
+  ok,
+  warning,
+  children,
+}: {
+  ok: boolean;
+  warning?: boolean;
+  children: React.ReactNode;
+}) {
   const cls = ok
     ? "bg-success/10 border-success/30 text-success"
     : warning
-    ? "bg-warning/10 border-warning/30 text-warning"
-    : "bg-white/5 border-white/10 text-muted-foreground";
-  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 ${cls}`}>{children}</span>;
+      ? "bg-warning/10 border-warning/30 text-warning"
+      : "bg-white/5 border-white/10 text-muted-foreground";
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 ${cls}`}>
+      {children}
+    </span>
+  );
 }

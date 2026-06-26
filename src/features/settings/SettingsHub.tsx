@@ -76,10 +76,16 @@ export function SettingsHub() {
   const [unlockErr, setUnlockErr] = useState<string | null>(null);
 
   const [secrets, setSecrets] = useState<Secrets>(EMPTY_SECRETS);
-  const [providers, setProviders] = useState<Providers>(() => ProvidersSchema.parse({
-    llm: { type: "openrouter", baseUrl: "https://openrouter.ai/api/v1", model: "meta-llama/llama-3.3-70b-instruct:free" },
-    image: { type: "pollinations", baseUrl: "", model: "flux" },
-  }));
+  const [providers, setProviders] = useState<Providers>(() =>
+    ProvidersSchema.parse({
+      llm: {
+        type: "openrouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        model: "meta-llama/llama-3.3-70b-instruct:free",
+      },
+      image: { type: "pollinations", baseUrl: "", model: "flux" },
+    }),
+  );
   const [brand, setBrand] = useState<Brand>(() => BrandSchema.parse({}));
   const [installStatus, setInstallStatus] = useState(() => InstallStatusSchema.parse({}));
 
@@ -119,7 +125,10 @@ export function SettingsHub() {
   async function persistSecrets(next: Secrets): Promise<{ ok: boolean; err?: string }> {
     const parsed = SecretsSchema.safeParse(next);
     if (!parsed.success) {
-      return { ok: false, err: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(" · ") };
+      return {
+        ok: false,
+        err: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(" · "),
+      };
     }
     let p = getSessionPassphrase();
     if (!p) {
@@ -138,13 +147,27 @@ export function SettingsHub() {
   }
 
   // Computed status
-  const status = useMemo(() => ({
-    supabase: !!(secrets.supabaseUrl && secrets.supabaseAnonKey && secrets.supabaseServiceKey && secrets.supabasePAT),
-    facebook: !!(secrets.facebookPageId && secrets.facebookPageToken),
-    llm: !!(providers.llm.model && (providers.llm.type === "ollama" || providers.llm.type === "lm_studio" || secrets.aiApiKey)),
-    image: !!providers.image.model,
-    setup: installStatus.schemaVersion > 0 && installStatus.storageBucketReady && installStatus.edgeFunctionsReady,
-  }), [secrets, providers, installStatus]);
+  const status = useMemo(
+    () => ({
+      supabase: !!(
+        secrets.supabaseUrl &&
+        secrets.supabaseAnonKey &&
+        secrets.supabaseServiceKey &&
+        secrets.supabasePAT
+      ),
+      facebook: !!(secrets.facebookPageId && secrets.facebookPageToken),
+      llm: !!(
+        providers.llm.model &&
+        (providers.llm.type === "ollama" || providers.llm.type === "lm_studio" || secrets.aiApiKey)
+      ),
+      image: !!providers.image.model,
+      setup:
+        installStatus.schemaVersion > 0 &&
+        installStatus.storageBucketReady &&
+        installStatus.edgeFunctionsReady,
+    }),
+    [secrets, providers, installStatus],
+  );
 
   if (needsUnlock) {
     return (
@@ -155,7 +178,9 @@ export function SettingsHub() {
           </div>
           <div>
             <h2 className="text-base font-semibold">Unlock your vault</h2>
-            <p className="text-xs text-muted-foreground">Your credentials are encrypted in this browser.</p>
+            <p className="text-xs text-muted-foreground">
+              Your credentials are encrypted in this browser.
+            </p>
           </div>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
@@ -169,7 +194,9 @@ export function SettingsHub() {
               autoFocus
             />
           </div>
-          <GlassButton variant="primary" onClick={tryUnlock}>Unlock</GlassButton>
+          <GlassButton variant="primary" onClick={tryUnlock}>
+            Unlock
+          </GlassButton>
         </div>
         {unlockErr && <p className="mt-3 text-sm text-destructive">{unlockErr}</p>}
       </GlassCard>
@@ -194,7 +221,9 @@ export function SettingsHub() {
       <SectionRow
         icon={<GlobeAltIcon className="h-5 w-5" />}
         title="Facebook page"
-        subtitle={secrets.facebookPageId ? `Page ${secrets.facebookPageId}` : "Optional — connect later"}
+        subtitle={
+          secrets.facebookPageId ? `Page ${secrets.facebookPageId}` : "Optional — connect later"
+        }
         ok={status.facebook}
         optional
         onClick={() => setSheet("facebook")}
@@ -289,7 +318,11 @@ export function SettingsHub() {
 
 /* ──────────────────────────────── Status strip ──────────────────────────────── */
 
-function StatusStrip({ status }: { status: { supabase: boolean; facebook: boolean; llm: boolean; image: boolean; setup: boolean } }) {
+function StatusStrip({
+  status,
+}: {
+  status: { supabase: boolean; facebook: boolean; llm: boolean; image: boolean; setup: boolean };
+}) {
   const items = [
     { k: "Supabase", ok: status.supabase },
     { k: "AI", ok: status.llm },
@@ -309,7 +342,11 @@ function StatusStrip({ status }: { status: { supabase: boolean; facebook: boolea
               : "bg-white/5 border-white/10 text-muted-foreground",
           )}
         >
-          {i.ok ? <CheckCircleIcon className="h-3 w-3" /> : <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />}
+          {i.ok ? (
+            <CheckCircleIcon className="h-3 w-3" />
+          ) : (
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+          )}
           {i.k}
         </span>
       ))}
@@ -320,9 +357,19 @@ function StatusStrip({ status }: { status: { supabase: boolean; facebook: boolea
 /* ──────────────────────────────── Section row ──────────────────────────────── */
 
 function SectionRow({
-  icon, title, subtitle, ok, optional, onClick,
+  icon,
+  title,
+  subtitle,
+  ok,
+  optional,
+  onClick,
 }: {
-  icon: ReactNode; title: string; subtitle: string; ok: boolean; optional?: boolean; onClick: () => void;
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  ok: boolean;
+  optional?: boolean;
+  onClick: () => void;
 }) {
   return (
     <button
@@ -333,17 +380,23 @@ function SectionRow({
         "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3",
       )}
     >
-      <div className={cn(
-        "grid h-10 w-10 place-items-center rounded-xl shrink-0",
-        ok ? "bg-success/10 text-success border border-success/30" : "bg-white/5 border border-white/10 text-muted-foreground",
-      )}>
+      <div
+        className={cn(
+          "grid h-10 w-10 place-items-center rounded-xl shrink-0",
+          ok
+            ? "bg-success/10 text-success border border-success/30"
+            : "bg-white/5 border border-white/10 text-muted-foreground",
+        )}
+      >
         {icon}
       </div>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold truncate">{title}</span>
           {optional && !ok && (
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">optional</span>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+              optional
+            </span>
           )}
         </div>
         <div className="text-xs text-muted-foreground truncate">{subtitle}</div>
@@ -355,9 +408,7 @@ function SectionRow({
 
 /* ──────────────────────────────── Sheets ──────────────────────────────── */
 
-function TestRow({
-  label, run,
-}: { label: string; run: () => Promise<TestResult> }) {
+function TestRow({ label, run }: { label: string; run: () => Promise<TestResult> }) {
   const [state, setState] = useState<TestResult | "running" | null>(null);
   const isRunning = state === "running";
   const obj = typeof state === "object" && state !== null ? state : null;
@@ -376,11 +427,14 @@ function TestRow({
         <BeakerIcon className="h-3.5 w-3.5" /> {label}
       </GlassButton>
       {obj && (
-        <p className={cn(
-          "text-[11px] leading-snug break-words",
-          obj.ok ? "text-success" : "text-destructive",
-        )}>
-          {obj.ok ? "✓ " : "✗ "}{obj.detail}
+        <p
+          className={cn(
+            "text-[11px] leading-snug break-words",
+            obj.ok ? "text-success" : "text-destructive",
+          )}
+        >
+          {obj.ok ? "✓ " : "✗ "}
+          {obj.detail}
         </p>
       )}
     </div>
@@ -388,8 +442,20 @@ function TestRow({
 }
 
 function SaveBar({
-  onSave, onClose, saving, error, saved, label = "Save",
-}: { onSave: () => void; onClose: () => void; saving?: boolean; error?: string | null; saved?: boolean; label?: string }) {
+  onSave,
+  onClose,
+  saving,
+  error,
+  saved,
+  label = "Save",
+}: {
+  onSave: () => void;
+  onClose: () => void;
+  saving?: boolean;
+  error?: string | null;
+  saved?: boolean;
+  label?: string;
+}) {
   return (
     <div className="flex flex-col gap-2">
       {error && (
@@ -398,9 +464,17 @@ function SaveBar({
         </p>
       )}
       <div className="flex items-center gap-2">
-        <GlassButton variant="ghost" onClick={onClose} className="flex-1 sm:flex-none">Close</GlassButton>
+        <GlassButton variant="ghost" onClick={onClose} className="flex-1 sm:flex-none">
+          Close
+        </GlassButton>
         <GlassButton variant="primary" loading={saving} onClick={onSave} className="flex-1">
-          {saved ? <><CheckCircleIcon className="h-4 w-4" /> Saved</> : label}
+          {saved ? (
+            <>
+              <CheckCircleIcon className="h-4 w-4" /> Saved
+            </>
+          ) : (
+            label
+          )}
         </GlassButton>
       </div>
     </div>
@@ -408,8 +482,16 @@ function SaveBar({
 }
 
 function SupabaseSheet({
-  open, onClose, secrets, persist,
-}: { open: boolean; onClose: () => void; secrets: Secrets; persist: (s: Secrets) => Promise<{ ok: boolean; err?: string }> }) {
+  open,
+  onClose,
+  secrets,
+  persist,
+}: {
+  open: boolean;
+  onClose: () => void;
+  secrets: Secrets;
+  persist: (s: Secrets) => Promise<{ ok: boolean; err?: string }>;
+}) {
   const [draft, setDraft] = useState(secrets);
   const [passphrase, setPassphrase] = useState("");
   const [saving, setSaving] = useState(false);
@@ -417,19 +499,28 @@ function SupabaseSheet({
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  useEffect(() => { if (open) { setDraft(secrets); setSaved(false); setErr(null); setNotice(null); }}, [open, secrets]);
+  useEffect(() => {
+    if (open) {
+      setDraft(secrets);
+      setSaved(false);
+      setErr(null);
+      setNotice(null);
+    }
+  }, [open, secrets]);
 
   const needsPass = !getSessionPassphrase();
   const ref = projectRefFromUrl(draft.supabaseUrl);
 
   const anonKind = classifySupabaseKey(draft.supabaseAnonKey);
   const serviceKind = classifySupabaseKey(draft.supabaseServiceKey);
-  const anonWarn = anonKind === "service"
-    ? "This looks like a service_role key. Move it to the Service role field below."
-    : null;
-  const serviceWarn = serviceKind === "anon"
-    ? "This looks like an anon/publishable key. Move it to the Anon field above."
-    : null;
+  const anonWarn =
+    anonKind === "service"
+      ? "This looks like a service_role key. Move it to the Service role field below."
+      : null;
+  const serviceWarn =
+    serviceKind === "anon"
+      ? "This looks like an anon/publishable key. Move it to the Anon field above."
+      : null;
 
   async function save() {
     setSaving(true);
@@ -438,27 +529,37 @@ function SupabaseSheet({
     let next = draft;
     // Auto-swap if user obviously put each key in the wrong field
     if (anonKind === "service" && serviceKind === "anon") {
-      next = { ...draft, supabaseAnonKey: draft.supabaseServiceKey, supabaseServiceKey: draft.supabaseAnonKey };
+      next = {
+        ...draft,
+        supabaseAnonKey: draft.supabaseServiceKey,
+        supabaseServiceKey: draft.supabaseAnonKey,
+      };
       setDraft(next);
       setNotice("Detected swapped keys — fixed automatically.");
     } else if (anonKind === "service" && !draft.supabaseServiceKey) {
       next = { ...draft, supabaseServiceKey: draft.supabaseAnonKey, supabaseAnonKey: "" };
       setDraft(next);
-      setNotice("That was a service_role key — moved it to the Service field. Paste the anon key now.");
+      setNotice(
+        "That was a service_role key — moved it to the Service field. Paste the anon key now.",
+      );
       setSaving(false);
       return;
     } else if (serviceKind === "anon" && !draft.supabaseAnonKey) {
       next = { ...draft, supabaseAnonKey: draft.supabaseServiceKey, supabaseServiceKey: "" };
       setDraft(next);
-      setNotice("That was an anon key — moved it to the Anon field. Paste the service_role key now.");
+      setNotice(
+        "That was an anon key — moved it to the Anon field. Paste the service_role key now.",
+      );
       setSaving(false);
       return;
     }
     if (needsPass) setSessionPassphraseSafely(passphrase);
     const res = await persist(next);
     setSaving(false);
-    if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1600); }
-    else setErr(res.err ?? "Save failed.");
+    if (res.ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1600);
+    } else setErr(res.err ?? "Save failed.");
   }
 
   return (
@@ -486,28 +587,76 @@ function SupabaseSheet({
         </Field>
         <Field
           label="Anon (public) key"
-          hint={anonKind === "anon" ? "✓ anon key detected" : anonKind === "service" ? null : "JWT eyJ… or sb_publishable_…"}
+          hint={
+            anonKind === "anon"
+              ? "✓ anon key detected"
+              : anonKind === "service"
+                ? null
+                : "JWT eyJ… or sb_publishable_…"
+          }
         >
-          <SecretInput value={draft.supabaseAnonKey} onChange={(v) => setDraft({ ...draft, supabaseAnonKey: v.trim() })} placeholder="eyJhbGc... or sb_publishable_..." />
-          {anonWarn && <p className="mt-1 text-xs text-amber-400 flex items-start gap-1"><ExclamationTriangleIcon className="h-3.5 w-3.5 mt-0.5 shrink-0" />{anonWarn}</p>}
+          <SecretInput
+            value={draft.supabaseAnonKey}
+            onChange={(v) => setDraft({ ...draft, supabaseAnonKey: v.trim() })}
+            placeholder="eyJhbGc... or sb_publishable_..."
+          />
+          {anonWarn && (
+            <p className="mt-1 text-xs text-amber-400 flex items-start gap-1">
+              <ExclamationTriangleIcon className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              {anonWarn}
+            </p>
+          )}
         </Field>
         <Field
           label="Service role key"
-          hint={serviceKind === "service" ? "✓ service_role key detected" : serviceKind === "anon" ? null : "JWT eyJ… or sb_secret_…"}
+          hint={
+            serviceKind === "service"
+              ? "✓ service_role key detected"
+              : serviceKind === "anon"
+                ? null
+                : "JWT eyJ… or sb_secret_…"
+          }
         >
-          <SecretInput value={draft.supabaseServiceKey} onChange={(v) => setDraft({ ...draft, supabaseServiceKey: v.trim() })} placeholder="eyJhbGc... or sb_secret_..." />
-          {serviceWarn && <p className="mt-1 text-xs text-amber-400 flex items-start gap-1"><ExclamationTriangleIcon className="h-3.5 w-3.5 mt-0.5 shrink-0" />{serviceWarn}</p>}
+          <SecretInput
+            value={draft.supabaseServiceKey}
+            onChange={(v) => setDraft({ ...draft, supabaseServiceKey: v.trim() })}
+            placeholder="eyJhbGc... or sb_secret_..."
+          />
+          {serviceWarn && (
+            <p className="mt-1 text-xs text-amber-400 flex items-start gap-1">
+              <ExclamationTriangleIcon className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              {serviceWarn}
+            </p>
+          )}
         </Field>
         <Field
           label="Personal access token"
-          hint={<a className="text-primary inline-flex items-center gap-0.5" href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noreferrer">create one <ArrowTopRightOnSquareIcon className="h-3 w-3" /></a>}
+          hint={
+            <a
+              className="text-primary inline-flex items-center gap-0.5"
+              href="https://supabase.com/dashboard/account/tokens"
+              target="_blank"
+              rel="noreferrer"
+            >
+              create one <ArrowTopRightOnSquareIcon className="h-3 w-3" />
+            </a>
+          }
         >
-          <SecretInput value={draft.supabasePAT} onChange={(v) => setDraft({ ...draft, supabasePAT: v.trim() })} placeholder="sbp_..." />
+          <SecretInput
+            value={draft.supabasePAT}
+            onChange={(v) => setDraft({ ...draft, supabasePAT: v.trim() })}
+            placeholder="sbp_..."
+          />
         </Field>
 
         {needsPass && (
           <Field label="Encryption passphrase" hint="8+ chars, stored only in this tab">
-            <GlassInput type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="••••••••" />
+            <GlassInput
+              type="password"
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
+              placeholder="••••••••"
+            />
           </Field>
         )}
 
@@ -522,21 +671,45 @@ function SupabaseSheet({
 }
 
 function FacebookSheet({
-  open, onClose, secrets, persist,
-}: { open: boolean; onClose: () => void; secrets: Secrets; persist: (s: Secrets) => Promise<{ ok: boolean; err?: string }> }) {
-  const [draft, setDraft] = useState({ id: secrets.facebookPageId ?? "", token: secrets.facebookPageToken ?? "" });
+  open,
+  onClose,
+  secrets,
+  persist,
+}: {
+  open: boolean;
+  onClose: () => void;
+  secrets: Secrets;
+  persist: (s: Secrets) => Promise<{ ok: boolean; err?: string }>;
+}) {
+  const [draft, setDraft] = useState({
+    id: secrets.facebookPageId ?? "",
+    token: secrets.facebookPageToken ?? "",
+  });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => { if (open) { setDraft({ id: secrets.facebookPageId ?? "", token: secrets.facebookPageToken ?? "" }); setSaved(false); setErr(null); }}, [open, secrets]);
+  useEffect(() => {
+    if (open) {
+      setDraft({ id: secrets.facebookPageId ?? "", token: secrets.facebookPageToken ?? "" });
+      setSaved(false);
+      setErr(null);
+    }
+  }, [open, secrets]);
 
   async function save() {
-    setSaving(true); setErr(null);
-    const res = await persist({ ...secrets, facebookPageId: draft.id, facebookPageToken: draft.token });
+    setSaving(true);
+    setErr(null);
+    const res = await persist({
+      ...secrets,
+      facebookPageId: draft.id,
+      facebookPageToken: draft.token,
+    });
     setSaving(false);
-    if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1600); }
-    else setErr(res.err ?? "Save failed.");
+    if (res.ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1600);
+    } else setErr(res.err ?? "Save failed.");
   }
 
   return (
@@ -549,12 +722,24 @@ function FacebookSheet({
     >
       <div className="flex flex-col gap-4">
         <Field label="Page ID">
-          <GlassInput value={draft.id} onChange={(e) => setDraft({ ...draft, id: e.target.value.trim() })} placeholder="1234567890" inputMode="numeric" />
+          <GlassInput
+            value={draft.id}
+            onChange={(e) => setDraft({ ...draft, id: e.target.value.trim() })}
+            placeholder="1234567890"
+            inputMode="numeric"
+          />
         </Field>
         <Field label="Page access token">
-          <SecretInput value={draft.token} onChange={(v) => setDraft({ ...draft, token: v.trim() })} placeholder="EAA..." />
+          <SecretInput
+            value={draft.token}
+            onChange={(v) => setDraft({ ...draft, token: v.trim() })}
+            placeholder="EAA..."
+          />
         </Field>
-        <TestRow label="Test Facebook" run={() => testFacebook(draft.token, draft.id || undefined)} />
+        <TestRow
+          label="Test Facebook"
+          run={() => testFacebook(draft.token, draft.id || undefined)}
+        />
       </div>
     </BottomSheet>
   );
@@ -572,9 +757,16 @@ const LLM_TYPES: [Providers["llm"]["type"], string, string][] = [
 ];
 
 function LLMSheet({
-  open, onClose, providers, apiKey, save,
+  open,
+  onClose,
+  providers,
+  apiKey,
+  save,
 }: {
-  open: boolean; onClose: () => void; providers: Providers; apiKey: string;
+  open: boolean;
+  onClose: () => void;
+  providers: Providers;
+  apiKey: string;
   save: (p: Providers, key: string) => Promise<{ ok: boolean; err?: string }>;
 }) {
   const [llm, setLlm] = useState(providers.llm);
@@ -583,7 +775,14 @@ function LLMSheet({
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => { if (open) { setLlm(providers.llm); setKey(apiKey); setErr(null); setSaved(false); }}, [open, providers.llm, apiKey]);
+  useEffect(() => {
+    if (open) {
+      setLlm(providers.llm);
+      setKey(apiKey);
+      setErr(null);
+      setSaved(false);
+    }
+  }, [open, providers.llm, apiKey]);
 
   function pickType(t: Providers["llm"]["type"]) {
     const def = LLM_TYPES.find((x) => x[0] === t);
@@ -591,12 +790,18 @@ function LLMSheet({
   }
 
   async function persist() {
-    if (!llm.model.trim()) { setErr("Model name is required."); return; }
-    setSaving(true); setErr(null);
+    if (!llm.model.trim()) {
+      setErr("Model name is required.");
+      return;
+    }
+    setSaving(true);
+    setErr(null);
     const res = await save({ ...providers, llm }, key);
     setSaving(false);
-    if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1600); }
-    else setErr(res.err ?? "Save failed.");
+    if (res.ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1600);
+    } else setErr(res.err ?? "Save failed.");
   }
 
   return (
@@ -605,7 +810,16 @@ function LLMSheet({
       onOpenChange={(v) => !v && onClose()}
       title="LLM provider"
       description="Any OpenAI-compatible endpoint. The model name is sent verbatim."
-      footer={<SaveBar onSave={persist} onClose={onClose} saving={saving} saved={saved} error={err} label="Save & continue" />}
+      footer={
+        <SaveBar
+          onSave={persist}
+          onClose={onClose}
+          saving={saving}
+          saved={saved}
+          error={err}
+          label="Save & continue"
+        />
+      }
     >
       <div className="flex flex-col gap-4">
         <Field label="Provider">
@@ -615,15 +829,29 @@ function LLMSheet({
             className="glass-input w-full h-11 rounded-xl px-3 text-sm focus:outline-none focus:glass-input-focus"
           >
             {LLM_TYPES.map(([v, label]) => (
-              <option key={v} value={v} className="bg-background text-foreground">{label}</option>
+              <option key={v} value={v} className="bg-background text-foreground">
+                {label}
+              </option>
             ))}
           </select>
         </Field>
         <Field label="Model name / id">
-          <GlassInput value={llm.model} onChange={(e) => setLlm({ ...llm, model: e.target.value })} placeholder="gpt-4o-mini" autoComplete="off" spellCheck={false} />
+          <GlassInput
+            value={llm.model}
+            onChange={(e) => setLlm({ ...llm, model: e.target.value })}
+            placeholder="gpt-4o-mini"
+            autoComplete="off"
+            spellCheck={false}
+          />
         </Field>
         <Field label="Base URL" hint="leave empty for provider default">
-          <GlassInput value={llm.baseUrl ?? ""} onChange={(e) => setLlm({ ...llm, baseUrl: e.target.value.trim() })} placeholder="https://api.openai.com/v1" inputMode="url" autoComplete="off" />
+          <GlassInput
+            value={llm.baseUrl ?? ""}
+            onChange={(e) => setLlm({ ...llm, baseUrl: e.target.value.trim() })}
+            placeholder="https://api.openai.com/v1"
+            inputMode="url"
+            autoComplete="off"
+          />
         </Field>
         <Field label="API key" hint="optional for local Ollama / LM Studio">
           <SecretInput value={key} onChange={(v) => setKey(v.trim())} placeholder="sk-..." />
@@ -643,9 +871,16 @@ const IMAGE_TYPES: [Providers["image"]["type"], string, string][] = [
 ];
 
 function ImageSheet({
-  open, onClose, providers, apiKey, save,
+  open,
+  onClose,
+  providers,
+  apiKey,
+  save,
 }: {
-  open: boolean; onClose: () => void; providers: Providers; apiKey: string;
+  open: boolean;
+  onClose: () => void;
+  providers: Providers;
+  apiKey: string;
   save: (p: Providers, key: string) => Promise<{ ok: boolean; err?: string }>;
 }) {
   const [img, setImg] = useState(providers.image);
@@ -654,7 +889,14 @@ function ImageSheet({
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => { if (open) { setImg(providers.image); setKey(apiKey); setSaved(false); setErr(null); }}, [open, providers.image, apiKey]);
+  useEffect(() => {
+    if (open) {
+      setImg(providers.image);
+      setKey(apiKey);
+      setSaved(false);
+      setErr(null);
+    }
+  }, [open, providers.image, apiKey]);
 
   function pickType(t: Providers["image"]["type"]) {
     const def = IMAGE_TYPES.find((x) => x[0] === t);
@@ -662,12 +904,18 @@ function ImageSheet({
   }
 
   async function persist() {
-    if (!img.model.trim()) { setErr("Model name is required."); return; }
-    setSaving(true); setErr(null);
+    if (!img.model.trim()) {
+      setErr("Model name is required.");
+      return;
+    }
+    setSaving(true);
+    setErr(null);
     const res = await save({ ...providers, image: img }, key);
     setSaving(false);
-    if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1600); }
-    else setErr(res.err ?? "Save failed.");
+    if (res.ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1600);
+    } else setErr(res.err ?? "Save failed.");
   }
 
   return (
@@ -676,7 +924,16 @@ function ImageSheet({
       onOpenChange={(v) => !v && onClose()}
       title="Image provider"
       description="Renders the visual for each scheduled post."
-      footer={<SaveBar onSave={persist} onClose={onClose} saving={saving} saved={saved} error={err} label="Save & continue" />}
+      footer={
+        <SaveBar
+          onSave={persist}
+          onClose={onClose}
+          saving={saving}
+          saved={saved}
+          error={err}
+          label="Save & continue"
+        />
+      }
     >
       <div className="flex flex-col gap-4">
         <Field label="Provider">
@@ -686,15 +943,28 @@ function ImageSheet({
             className="glass-input w-full h-11 rounded-xl px-3 text-sm focus:outline-none focus:glass-input-focus"
           >
             {IMAGE_TYPES.map(([v, label]) => (
-              <option key={v} value={v} className="bg-background text-foreground">{label}</option>
+              <option key={v} value={v} className="bg-background text-foreground">
+                {label}
+              </option>
             ))}
           </select>
         </Field>
         <Field label="Model name / id">
-          <GlassInput value={img.model} onChange={(e) => setImg({ ...img, model: e.target.value })} placeholder="flux" autoComplete="off" />
+          <GlassInput
+            value={img.model}
+            onChange={(e) => setImg({ ...img, model: e.target.value })}
+            placeholder="flux"
+            autoComplete="off"
+          />
         </Field>
         <Field label="Base URL" hint="optional">
-          <GlassInput value={img.baseUrl ?? ""} onChange={(e) => setImg({ ...img, baseUrl: e.target.value.trim() })} placeholder="" inputMode="url" autoComplete="off" />
+          <GlassInput
+            value={img.baseUrl ?? ""}
+            onChange={(e) => setImg({ ...img, baseUrl: e.target.value.trim() })}
+            placeholder=""
+            inputMode="url"
+            autoComplete="off"
+          />
         </Field>
         <Field label="API key" hint="optional for Pollinations">
           <SecretInput value={key} onChange={(v) => setKey(v.trim())} placeholder="..." />
@@ -705,13 +975,26 @@ function ImageSheet({
 }
 
 function BrandSheet({
-  open, onClose, brand, save,
-}: { open: boolean; onClose: () => void; brand: Brand; save: (b: Brand) => void }) {
+  open,
+  onClose,
+  brand,
+  save,
+}: {
+  open: boolean;
+  onClose: () => void;
+  brand: Brand;
+  save: (b: Brand) => void;
+}) {
   const [draft, setDraft] = useState(brand);
   const [topicDraft, setTopicDraft] = useState("");
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => { if (open) { setDraft(brand); setSaved(false); }}, [open, brand]);
+  useEffect(() => {
+    if (open) {
+      setDraft(brand);
+      setSaved(false);
+    }
+  }, [open, brand]);
 
   function addTopic() {
     const t = topicDraft.trim();
@@ -725,17 +1008,39 @@ function BrandSheet({
       open={open}
       onOpenChange={(v) => !v && onClose()}
       title="Brand voice & schedule"
-      footer={<SaveBar onSave={() => { save(draft); setSaved(true); setTimeout(() => setSaved(false), 1400); }} onClose={onClose} saved={saved} />}
+      footer={
+        <SaveBar
+          onSave={() => {
+            save(draft);
+            setSaved(true);
+            setTimeout(() => setSaved(false), 1400);
+          }}
+          onClose={onClose}
+          saved={saved}
+        />
+      }
     >
       <div className="flex flex-col gap-4">
         <Field label="Brand name">
-          <GlassInput value={draft.brandName} onChange={(e) => setDraft({ ...draft, brandName: e.target.value })} placeholder="Aurora Coffee Co." />
+          <GlassInput
+            value={draft.brandName}
+            onChange={(e) => setDraft({ ...draft, brandName: e.target.value })}
+            placeholder="Aurora Coffee Co."
+          />
         </Field>
         <Field label="Voice & tone">
-          <GlassTextarea value={draft.voice} onChange={(e) => setDraft({ ...draft, voice: e.target.value })} placeholder="Warm, knowledgeable, never salesy." />
+          <GlassTextarea
+            value={draft.voice}
+            onChange={(e) => setDraft({ ...draft, voice: e.target.value })}
+            placeholder="Warm, knowledgeable, never salesy."
+          />
         </Field>
         <Field label="Audience">
-          <GlassTextarea value={draft.audience} onChange={(e) => setDraft({ ...draft, audience: e.target.value })} placeholder="Specialty-coffee enthusiasts, 25-45." />
+          <GlassTextarea
+            value={draft.audience}
+            onChange={(e) => setDraft({ ...draft, audience: e.target.value })}
+            placeholder="Specialty-coffee enthusiasts, 25-45."
+          />
         </Field>
         <Field label="Topics">
           <div className="flex gap-2">
@@ -747,14 +1052,23 @@ function BrandSheet({
                 placeholder="Add a topic"
               />
             </div>
-            <GlassButton variant="subtle" onClick={addTopic}><PlusIcon className="h-4 w-4" /></GlassButton>
+            <GlassButton variant="subtle" onClick={addTopic}>
+              <PlusIcon className="h-4 w-4" />
+            </GlassButton>
           </div>
           {draft.topics.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {draft.topics.map((t) => (
-                <span key={t} className="inline-flex items-center gap-1 rounded-full bg-white/8 border border-white/15 px-2.5 py-1 text-xs">
+                <span
+                  key={t}
+                  className="inline-flex items-center gap-1 rounded-full bg-white/8 border border-white/15 px-2.5 py-1 text-xs"
+                >
                   {t}
-                  <button onClick={() => setDraft({ ...draft, topics: draft.topics.filter((x) => x !== t) })}>
+                  <button
+                    onClick={() =>
+                      setDraft({ ...draft, topics: draft.topics.filter((x) => x !== t) })
+                    }
+                  >
                     <XMarkIcon className="h-3 w-3" />
                   </button>
                 </span>
@@ -765,16 +1079,35 @@ function BrandSheet({
         <Field label="Posting mode">
           <select
             value={draft.postingMode}
-            onChange={(e) => setDraft({ ...draft, postingMode: e.target.value as Brand["postingMode"] })}
+            onChange={(e) =>
+              setDraft({ ...draft, postingMode: e.target.value as Brand["postingMode"] })
+            }
             className="glass-input w-full h-11 rounded-xl px-3 text-sm focus:outline-none focus:glass-input-focus"
           >
-            <option value="manual" className="bg-background">Manual — approve every post</option>
-            <option value="hybrid" className="bg-background">Hybrid</option>
-            <option value="full_auto" className="bg-background">Full auto</option>
+            <option value="manual" className="bg-background">
+              Manual — approve every post
+            </option>
+            <option value="hybrid" className="bg-background">
+              Hybrid
+            </option>
+            <option value="full_auto" className="bg-background">
+              Full auto
+            </option>
           </select>
         </Field>
         <Field label="Max posts / day">
-          <GlassInput type="number" min={1} max={10} value={draft.maxPostsPerDay} onChange={(e) => setDraft({ ...draft, maxPostsPerDay: Math.max(1, Math.min(10, Number(e.target.value) || 1)) })} />
+          <GlassInput
+            type="number"
+            min={1}
+            max={10}
+            value={draft.maxPostsPerDay}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                maxPostsPerDay: Math.max(1, Math.min(10, Number(e.target.value) || 1)),
+              })
+            }
+          />
         </Field>
       </div>
     </BottomSheet>
@@ -784,17 +1117,28 @@ function BrandSheet({
 /* ──────────────────────────────── Setup runner ──────────────────────────────── */
 
 function SetupCard({
-  secrets, providers, brand, onStatus,
-}: { secrets: Secrets; providers: Providers; brand: Brand; onStatus: () => void }) {
+  secrets,
+  providers,
+  brand,
+  onStatus,
+}: {
+  secrets: Secrets;
+  providers: Providers;
+  brand: Brand;
+  onStatus: () => void;
+}) {
   const [steps, setSteps] = useState<SetupStep[]>([]);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function start() {
-    setErr(null); setDone(false); setSteps([]);
+    setErr(null);
+    setDone(false);
+    setSteps([]);
     if (!secrets.supabaseUrl || !secrets.supabasePAT) {
-      setErr("Add your Supabase URL and PAT first."); return;
+      setErr("Add your Supabase URL and PAT first.");
+      return;
     }
     setRunning(true);
     const result = await runSetup(secrets, providers, brand, (step) => {
@@ -819,10 +1163,16 @@ function SetupCard({
           <h2 className="text-base font-semibold flex items-center gap-2">
             <PlayIcon className="h-4 w-4 text-primary" /> Run setup
           </h2>
-          <p className="mt-1 text-xs text-muted-foreground">Provisions schema, RLS, RPCs, storage bucket and project secrets. Idempotent.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Provisions schema, RLS, RPCs, storage bucket and project secrets. Idempotent.
+          </p>
         </div>
         <GlassButton variant="primary" loading={running} onClick={start} className="shrink-0">
-          {steps.length === 0 ? <PlayIcon className="h-4 w-4" /> : <ArrowPathIcon className="h-4 w-4" />}
+          {steps.length === 0 ? (
+            <PlayIcon className="h-4 w-4" />
+          ) : (
+            <ArrowPathIcon className="h-4 w-4" />
+          )}
           <span className="hidden sm:inline">{steps.length === 0 ? "Run setup" : "Re-run"}</span>
         </GlassButton>
       </div>
@@ -830,17 +1180,31 @@ function SetupCard({
       {steps.length > 0 && (
         <ol className="space-y-1.5 mt-2">
           {steps.map((s) => (
-            <li key={s.key} className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2.5 grid grid-cols-[auto_minmax(0,1fr)] gap-2.5 items-start">
+            <li
+              key={s.key}
+              className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-2.5 grid grid-cols-[auto_minmax(0,1fr)] gap-2.5 items-start"
+            >
               <span className="mt-1">
-                {s.status === "running" && <span className="block h-2 w-2 rounded-full bg-primary animate-pulse" />}
+                {s.status === "running" && (
+                  <span className="block h-2 w-2 rounded-full bg-primary animate-pulse" />
+                )}
                 {s.status === "done" && <CheckCircleIcon className="h-4 w-4 text-success" />}
-                {s.status === "error" && <ExclamationTriangleIcon className="h-4 w-4 text-destructive" />}
-                {s.status === "pending" && <span className="block h-2 w-2 rounded-full bg-muted-foreground/40" />}
+                {s.status === "error" && (
+                  <ExclamationTriangleIcon className="h-4 w-4 text-destructive" />
+                )}
+                {s.status === "pending" && (
+                  <span className="block h-2 w-2 rounded-full bg-muted-foreground/40" />
+                )}
               </span>
               <div className="min-w-0">
                 <div className="text-sm font-medium">{s.label}</div>
                 {s.detail && (
-                  <div className={cn("mt-0.5 text-[11px] break-words", s.status === "error" ? "text-destructive" : "text-muted-foreground")}>
+                  <div
+                    className={cn(
+                      "mt-0.5 text-[11px] break-words",
+                      s.status === "error" ? "text-destructive" : "text-muted-foreground",
+                    )}
+                  >
                     {s.detail}
                   </div>
                 )}
@@ -883,26 +1247,39 @@ function DangerCard() {
     const blob = new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `aurora-${Date.now()}.json`; a.click();
+    a.href = url;
+    a.download = `aurora-${Date.now()}.json`;
+    a.click();
     URL.revokeObjectURL(url);
   }
 
   return (
     <GlassCard className="p-5">
       <h2 className="text-base font-semibold mb-1">Local data</h2>
-      <p className="text-xs text-muted-foreground mb-3">Everything is stored in this browser. Your Supabase project is not touched by reset.</p>
+      <p className="text-xs text-muted-foreground mb-3">
+        Everything is stored in this browser. Your Supabase project is not touched by reset.
+      </p>
       <div className="flex flex-wrap gap-2">
         <GlassButton size="sm" variant="subtle" onClick={exportJSON}>
           <ArrowDownTrayIcon className="h-3.5 w-3.5" /> Export
         </GlassButton>
         {!confirm ? (
-          <GlassButton size="sm" variant="ghost" onClick={() => setConfirm(true)} className="text-destructive">
+          <GlassButton
+            size="sm"
+            variant="ghost"
+            onClick={() => setConfirm(true)}
+            className="text-destructive"
+          >
             <TrashIcon className="h-3.5 w-3.5" /> Reset
           </GlassButton>
         ) : (
           <>
-            <GlassButton size="sm" variant="destructive" onClick={reset}>Yes, wipe</GlassButton>
-            <GlassButton size="sm" variant="ghost" onClick={() => setConfirm(false)}>Cancel</GlassButton>
+            <GlassButton size="sm" variant="destructive" onClick={reset}>
+              Yes, wipe
+            </GlassButton>
+            <GlassButton size="sm" variant="ghost" onClick={() => setConfirm(false)}>
+              Cancel
+            </GlassButton>
           </>
         )}
       </div>
@@ -912,12 +1289,22 @@ function DangerCard() {
 
 /* ──────────────────────────────── Field wrapper ──────────────────────────────── */
 
-function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <div className="min-w-0">
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
         <GlassLabel>{label}</GlassLabel>
-        {hint && <span className="text-[10px] text-muted-foreground/70 normal-case truncate">{hint}</span>}
+        {hint && (
+          <span className="text-[10px] text-muted-foreground/70 normal-case truncate">{hint}</span>
+        )}
       </div>
       <div className="min-w-0">{children}</div>
     </div>

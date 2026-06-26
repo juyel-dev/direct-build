@@ -171,8 +171,12 @@ async function planContent(page: Page, horizonDays: number) {
     .lte("slot_start", to);
   if (error) throw error;
 
-  const used = new Set((existing ?? []).map((item: { slot_start: string }) => item.slot_start));
-  const missing = targetSlots.filter((slot) => !used.has(slot.toISOString()));
+  const used = new Set(
+    (existing ?? [])
+      .map((item: { slot_start: string }) => new Date(item.slot_start).getTime())
+      .filter(Number.isFinite),
+  );
+  const missing = targetSlots.filter((slot) => !used.has(slot.getTime()));
   if (missing.length === 0) return "Calendar already has briefs for the planning horizon.";
 
   const ideas = await generateBriefIdeas(page, missing);
@@ -309,8 +313,7 @@ async function publishDuePosts(page: Page) {
   const remaining = Math.max(0, page.max_posts_per_day - (publishedToday ?? 0));
   if (remaining === 0) return "Daily post cap reached.";
 
-  const allowedStatuses =
-    page.posting_mode === "manual" ? ["approved", "scheduled"] : ["approved", "scheduled"];
+  const allowedStatuses = page.posting_mode === "manual" ? ["approved"] : ["approved", "scheduled"];
   const { data, error } = await supabase
     .from("content_briefs")
     .select("*")
@@ -513,6 +516,7 @@ async function completeJob(job: Job, status: string, detail: string) {
     status === "failed_retryable"
       ? new Date(Date.now() + Math.min(60, 2 ** Math.max(0, job.attempts)) * 60_000).toISOString()
       : null;
+  const now = new Date().toISOString();
   const { error } = await supabase
     .from("jobs")
     .update({
@@ -520,7 +524,8 @@ async function completeJob(job: Job, status: string, detail: string) {
       last_error: status === "succeeded" ? null : detail,
       next_retry_at: retryAt,
       lease_expires_at: null,
-      updated_at: new Date().toISOString(),
+      completed_at: status === "succeeded" || status === "failed_terminal" ? now : null,
+      updated_at: now,
     })
     .eq("id", job.id);
   if (error) throw error;
