@@ -10,15 +10,21 @@ import {
   SparklesIcon,
   LockClosedIcon,
   LockOpenIcon,
+  PencilIcon,
+  DocumentTextIcon,
 } from "@heroicons/react/24/outline";
 import { GlassButton } from "@/components/glass/GlassButton";
 import { cn } from "@/lib/utils";
 import { clearSessionPassphrase, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
 import { invalidateUserSupabase } from "@/lib/user-supabase";
+import { getUserSupabase } from "@/lib/user-supabase";
+import { loadInstallStatus } from "@/lib/config-store";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: HomeIcon },
   { to: "/schedule", label: "Schedule", icon: CalendarDaysIcon },
+  { to: "/compose", label: "Compose", icon: PencilIcon },
+  { to: "/drafts", label: "Drafts", icon: DocumentTextIcon },
   { to: "/analytics", label: "Analytics", icon: ChartBarIcon },
   { to: "/settings", label: "Settings", icon: Cog6ToothIcon },
 ] as const;
@@ -28,11 +34,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [unlocked, setUnlocked] = useState<boolean>(false);
   const [hasSecrets, setHasSecrets] = useState<boolean>(false);
+  const [draftCount, setDraftCount] = useState(0);
 
   useEffect(() => {
     setUnlocked(!!getSessionPassphrase());
     setHasSecrets(hasStoredSecrets());
   }, [pathname]);
+
+  useEffect(() => {
+    if (!unlocked || !hasStoredSecrets()) return;
+    const install = loadInstallStatus();
+    if (install.schemaVersion === 0) return;
+    (async () => {
+      try {
+        const sb = await getUserSupabase();
+        if (!sb) return;
+        const { count } = await sb
+          .from("content_briefs")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "draft");
+        setDraftCount(count ?? 0);
+      } catch {
+        // ignore
+      }
+    })();
+  }, [unlocked, pathname]);
 
   useEffect(() => setOpen(false), [pathname]);
 
@@ -105,6 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {NAV.map((item) => {
                 const Icon = item.icon;
                 const active = pathname === item.to || (item.to !== "/" && pathname.startsWith(item.to));
+                const showBadge = item.to === "/drafts" && draftCount > 0;
                 return (
                   <Link
                     key={item.to}
@@ -118,6 +145,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   >
                     <Icon className={cn("h-5 w-5", active ? "text-primary" : "")} />
                     <span>{item.label}</span>
+                    {showBadge && (
+                      <span className="ml-auto inline-flex items-center justify-center rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                        {draftCount}
+                      </span>
+                    )}
                   </Link>
                 );
               })}

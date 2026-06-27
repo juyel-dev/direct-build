@@ -10,6 +10,8 @@ import {
   loadInstallStatus,
   loadBrand,
 } from "@/lib/config-store";
+import { useRealtime } from "@/hooks/useRealtime";
+import { usePageId } from "@/hooks/usePageId";
 import {
   SparklesIcon,
   ArrowRightIcon,
@@ -20,6 +22,8 @@ import {
   HeartIcon,
   ChatBubbleLeftIcon,
   ShareIcon,
+  CpuChipIcon,
+  ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import { format } from "date-fns";
 
@@ -48,6 +52,16 @@ type Stats = {
   totalLikes: number;
   totalComments: number;
   totalShares: number;
+  workerLastRun: string | null;
+  workerTodayRuns: number;
+};
+
+type SystemEvent = {
+  id: string;
+  severity: string;
+  category: string;
+  message: string;
+  created_at: string;
 };
 
 function Dashboard() {
@@ -59,6 +73,8 @@ function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const brand = useMemo(() => loadBrand(), []);
+  const pageId = usePageId();
+  useRealtime(pageId);
 
   useEffect(() => {
     (async () => {
@@ -75,20 +91,27 @@ function Dashboard() {
       try {
         const sb = await getUserSupabase();
         if (!sb) throw new Error("Could not initialize Supabase client.");
-        const [briefRes, postRes, snapRes] = await Promise.all([
+        const [briefRes, postRes, snapRes, eventsRes] = await Promise.all([
           sb.from("content_briefs").select("id, slot_start, topic, caption, status, image_url").order("slot_start").limit(5),
           sb.from("posts").select("id, published_at").gte("published_at", new Date(Date.now() - 7 * 86400_000).toISOString()),
           sb.from("engagement_snapshots").select("likes, comments, shares").order("captured_at", { ascending: false }).limit(100),
+          sb.from("system_events").select("id, severity, category, message, created_at").eq("category", "worker").order("created_at", { ascending: false }).limit(10),
         ]);
         if (briefRes.error) throw briefRes.error;
         setBriefs((briefRes.data ?? []) as Brief[]);
         const snaps = (snapRes.data ?? []) as { likes: number; comments: number; shares: number }[];
+        const events = (eventsRes.data ?? []) as SystemEvent[];
+        const todayStart = new Date();
+        todayStart.setUTCHours(0, 0, 0, 0);
+        const todayRuns = events.filter((e) => new Date(e.created_at) >= todayStart).length;
         setStats({
           posts7d: (postRes.data ?? []).length,
           briefsPending: (briefRes.data ?? []).filter((b) => b.status === "draft").length,
           totalLikes: snaps.reduce((a, s) => a + (s.likes ?? 0), 0),
           totalComments: snaps.reduce((a, s) => a + (s.comments ?? 0), 0),
           totalShares: snaps.reduce((a, s) => a + (s.shares ?? 0), 0),
+          workerLastRun: events[0]?.created_at ?? null,
+          workerTodayRuns: todayRuns,
         });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -157,6 +180,38 @@ function Dashboard() {
         <Stat icon={<HeartIcon className="h-5 w-5" />} label="Likes (recent)" value={stats?.totalLikes ?? 0} accent="aurora" />
         <Stat icon={<ChatBubbleLeftIcon className="h-5 w-5" />} label="Comments" value={stats?.totalComments ?? 0} />
       </div>
+
+      {/* Worker Status */}
+      <GlassCard className="p-4 mb-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="grid h-9 w-9 place-items-center rounded-lg bg-success/15">
+              <CpuChipIcon className="h-5 w-5 text-success" />
+            </div>
+            <div>
+              <p className="text-sm font-medium">Worker Status</p>
+              <p className="text-xs text-muted-foreground">
+                {stats?.workerLastRun
+                  ? `Last run: ${formatTimeAgo(stats.workerLastRun)}`
+                  : "No runs yet"}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            <span>Today: {stats?.workerTodayRuns ?? 0} runs</span>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+              brand.postingMode === "full_auto"
+                ? "bg-success/15 text-success border border-success/30"
+                : brand.postingMode === "hybrid"
+                ? "bg-accent/15 text-accent border border-accent/30"
+                : "bg-white/10 text-muted-foreground border border-white/10"
+            }`}>
+              <FireIcon className="h-3 w-3" />
+              {brand.postingMode === "full_auto" ? "Auto" : brand.postingMode === "hybrid" ? "Hybrid" : "Manual"}
+            </span>
+          </div>
+        </div>
+      </GlassCard>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <GlassPanel
@@ -283,4 +338,17 @@ function LoadingSkeleton() {
       ))}
     </div>
   );
+}
+
+function formatTimeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay}d ago`;
 }
