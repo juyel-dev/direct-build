@@ -3,6 +3,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { GlassCard, GlassPanel } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
 import { FacebookPreview } from "@/components/facebook/FacebookPreview";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { getUserSupabase } from "@/lib/user-supabase";
 import { loadBrand, loadInstallStatus, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
@@ -23,7 +24,11 @@ export const Route = createFileRoute("/drafts")({
       { name: "description", content: "Review and approve AI-generated content drafts." },
     ],
   }),
-  component: DraftsPage,
+  component: () => (
+    <ErrorBoundary fallbackTitle="Drafts page error">
+      <DraftsPage />
+    </ErrorBoundary>
+  ),
 });
 
 type Draft = {

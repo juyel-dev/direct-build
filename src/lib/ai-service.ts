@@ -1,5 +1,5 @@
 import { proxyFetch } from "./proxy-fetch";
-import { loadProviders, type Providers } from "./config-store";
+import { loadProviders, loadSecrets, getSessionPassphrase, type Providers } from "./config-store";
 
 /**
  * Unified AI service for text generation and image generation.
@@ -13,6 +13,12 @@ export interface GenerateTextOptions {
   temperature?: number;
 }
 
+async function getApiKey(): Promise<string> {
+  const pass = getSessionPassphrase();
+  const secrets = pass ? await loadSecrets(pass) : null;
+  return secrets?.aiApiKey || "";
+}
+
 /**
  * Generate text using the configured LLM provider.
  */
@@ -22,9 +28,10 @@ export async function generateText(
 ): Promise<string> {
   const p = providers ?? loadProviders();
   const baseUrl = (p.llm.baseUrl || "").replace(/\/+$/, "");
-  const apiKey = sessionStorage.getItem("fbai.sess.passphrase") || "";
+  const apiKey = await getApiKey();
 
   if (!baseUrl) throw new Error("No LLM base URL configured");
+  if (!apiKey) throw new Error("No AI API key configured. Add one in Settings.");
 
   const r = await proxyFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -50,14 +57,14 @@ export async function generateText(
 
 /**
  * Generate an image URL using the configured image provider.
- * Returns a URL that can be used directly in <img> tags.
+ * Returns a URL that can be used directly in img tags.
  */
 export async function generateImageUrl(
   prompt: string,
   providers?: Providers,
 ): Promise<string | null> {
   const p = providers ?? loadProviders();
-  const { type, baseUrl, model } = p.image;
+  const { type, model } = p.image;
 
   if (type === "pollinations") {
     const encoded = encodeURIComponent(prompt);
@@ -65,7 +72,8 @@ export async function generateImageUrl(
   }
 
   if (type === "openai_dalle") {
-    const apiKey = sessionStorage.getItem("fbai.sess.passphrase") || "";
+    const apiKey = await getApiKey();
+    if (!apiKey) throw new Error("No AI API key configured");
     const r = await proxyFetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: {
@@ -85,7 +93,8 @@ export async function generateImageUrl(
   }
 
   if (type === "stability") {
-    const apiKey = sessionStorage.getItem("fbai.sess.passphrase") || "";
+    const apiKey = await getApiKey();
+    if (!apiKey) throw new Error("No AI API key configured");
     const r = await proxyFetch("https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image", {
       method: "POST",
       headers: {

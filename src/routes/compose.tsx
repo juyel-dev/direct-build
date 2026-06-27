@@ -4,9 +4,10 @@ import { GlassCard, GlassPanel } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
 import { GlassInput, GlassTextarea, GlassLabel } from "@/components/glass/GlassInput";
 import { FacebookPreview } from "@/components/facebook/FacebookPreview";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { getUserSupabase } from "@/lib/user-supabase";
-import { loadBrand, loadProviders, loadInstallStatus, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
+import { loadBrand, loadProviders, loadInstallStatus, getSessionPassphrase, hasStoredSecrets, loadSecrets } from "@/lib/config-store";
 import { proxyFetch } from "@/lib/proxy-fetch";
 import {
   SparklesIcon,
@@ -28,7 +29,11 @@ export const Route = createFileRoute("/compose")({
   validateSearch: (search: Record<string, unknown>) => ({
     briefId: (search.briefId as string) || undefined,
   }),
-  component: ComposePage,
+  component: () => (
+    <ErrorBoundary fallbackTitle="Compose page error">
+      <ComposePage />
+    </ErrorBoundary>
+  ),
 });
 
 type BriefData = {
@@ -107,13 +112,20 @@ function ComposePage() {
     }
     try {
       setGenerating(true);
+      const pass = getSessionPassphrase();
+      const secrets = pass ? await loadSecrets(pass) : null;
+      const apiKey = secrets?.aiApiKey || "";
+      if (!apiKey) {
+        toast.error("No AI API key configured. Add one in Settings.");
+        return;
+      }
       const prompt = `Write a Facebook post caption about: ${topic}. Brand voice: ${brand.voice || "friendly and professional"}. Keep it under 280 characters, engaging, and non-spammy. Return ONLY the caption text, no quotes or labels.`;
 
       const r = await proxyFetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${sessionStorage.getItem("fbai.sess.passphrase") || ""}`,
+          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           model: providers.llm.model || "meta-llama/llama-3.3-70b-instruct:free",
