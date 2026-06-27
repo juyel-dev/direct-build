@@ -2,9 +2,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/AppShell";
 import { GlassPanel } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
-import { useEffect, useState } from "react";
-import { getUserSupabase } from "@/lib/user-supabase";
-import { getSessionPassphrase, loadInstallStatus } from "@/lib/config-store";
+import { loadInstallStatus, getSessionPassphrase } from "@/lib/config-store";
+import { useAnalyticsData } from "@/hooks/useAuroraQuery";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -18,78 +17,22 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { format, subDays } from "date-fns";
 
 export const Route = createFileRoute("/analytics")({
   head: () => ({ meta: [{ title: "Analytics — Aurora" }, { name: "description", content: "Engagement, top posts, and cost analytics for your Facebook AI autopilot." }] }),
   component: Analytics,
 });
 
-type Snap = { post_id: string; captured_at: string; likes: number; comments: number; shares: number; impressions: number };
-type Post = { id: string; published_at: string | null; fb_permalink_url: string | null; content_brief_id: string | null };
-type Brief = { id: string; topic: string };
-type Usage = { provider: string; model: string; estimated_cost_usd: number; called_at: string };
+const COLORS = ["oklch(0.78 0.16 195)", "oklch(0.70 0.18 320)", "oklch(0.78 0.16 155)", "oklch(0.82 0.17 80)"];
 
 function Analytics() {
-  const [series, setSeries] = useState<{ date: string; likes: number; comments: number; shares: number }[]>([]);
-  const [topPosts, setTopPosts] = useState<{ topic: string; url: string | null; score: number }[]>([]);
-  const [costByProvider, setCostByProvider] = useState<{ name: string; value: number }[]>([]);
-  const [totalCost, setTotalCost] = useState(0);
-  const [ready, setReady] = useState(false);
   const inst = loadInstallStatus();
   const unlocked = !!getSessionPassphrase();
-
-  useEffect(() => {
-    (async () => {
-      if (!unlocked || inst.schemaVersion === 0) { setReady(true); return; }
-      const sb = await getUserSupabase();
-      if (!sb) { setReady(true); return; }
-      const since = subDays(new Date(), 30).toISOString();
-      const [snaps, posts, briefs, usage] = await Promise.all([
-        sb.from("engagement_snapshots").select("post_id, captured_at, likes, comments, shares, impressions").gte("captured_at", since),
-        sb.from("posts").select("id, published_at, fb_permalink_url, content_brief_id"),
-        sb.from("content_briefs").select("id, topic"),
-        sb.from("ai_usage").select("provider, model, estimated_cost_usd, called_at").gte("called_at", since),
-      ]);
-      const snapData = (snaps.data ?? []) as Snap[];
-      const buckets = new Map<string, { likes: number; comments: number; shares: number }>();
-      for (const s of snapData) {
-        const key = format(new Date(s.captured_at), "MMM d");
-        const cur = buckets.get(key) ?? { likes: 0, comments: 0, shares: 0 };
-        cur.likes += s.likes;
-        cur.comments += s.comments;
-        cur.shares += s.shares;
-        buckets.set(key, cur);
-      }
-      setSeries(Array.from(buckets.entries()).map(([date, v]) => ({ date, ...v })));
-
-      const briefMap = new Map((briefs.data ?? []).map((b: Brief) => [b.id, b.topic]));
-      const postIdToBrief = new Map((posts.data ?? []).map((p: Post) => [p.id, { brief: briefMap.get(p.content_brief_id ?? "") ?? "Untitled", url: p.fb_permalink_url }]));
-      const scoreByPost = new Map<string, number>();
-      for (const s of snapData) {
-        scoreByPost.set(s.post_id, (scoreByPost.get(s.post_id) ?? 0) + s.likes + s.comments * 2 + s.shares * 3);
-      }
-      const top = Array.from(scoreByPost.entries())
-        .sort((a, z) => z[1] - a[1])
-        .slice(0, 5)
-        .map(([pid, score]) => {
-          const meta = postIdToBrief.get(pid);
-          return { topic: meta?.brief ?? "Unknown", url: meta?.url ?? null, score };
-        });
-      setTopPosts(top);
-
-      const costMap = new Map<string, number>();
-      let total = 0;
-      for (const u of (usage.data ?? []) as Usage[]) {
-        costMap.set(u.provider, (costMap.get(u.provider) ?? 0) + Number(u.estimated_cost_usd ?? 0));
-        total += Number(u.estimated_cost_usd ?? 0);
-      }
-      setTotalCost(total);
-      setCostByProvider(Array.from(costMap.entries()).map(([name, value]) => ({ name, value })));
-
-      setReady(true);
-    })();
-  }, [unlocked, inst.schemaVersion]);
+  const { data, isLoading } = useAnalyticsData();
+  const series = data?.series ?? [];
+  const topPosts = data?.topPosts ?? [];
+  const costByProvider = data?.costByProvider ?? [];
+  const totalCost = data?.totalCost ?? 0;
 
   if (inst.schemaVersion === 0 || !unlocked) {
     return (
@@ -101,8 +44,6 @@ function Analytics() {
     );
   }
 
-  const COLORS = ["oklch(0.78 0.16 195)", "oklch(0.70 0.18 320)", "oklch(0.78 0.16 155)", "oklch(0.82 0.17 80)"];
-
   return (
     <AppShell>
       <div className="mb-8">
@@ -110,8 +51,8 @@ function Analytics() {
         <h1 className="mt-1 text-3xl md:text-4xl font-display font-medium gradient-text">Analytics</h1>
       </div>
 
-      {!ready ? (
-        <div className="glass rounded-2xl h-80 shimmer-bg" />
+      {isLoading ? (
+        <AnalyticsSkeleton />
       ) : (
         <div className="grid gap-6 lg:grid-cols-3">
           <GlassPanel title="Engagement over time" className="lg:col-span-2">
@@ -173,7 +114,7 @@ function Analytics() {
                       <p className="text-sm font-medium truncate">{p.topic}</p>
                       <p className="text-xs text-muted-foreground">Engagement score: {p.score}</p>
                     </div>
-                    {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">View →</a>}
+                    {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline" aria-label={`View post: ${p.topic}`}>View →</a>}
                   </li>
                 ))}
               </ol>
@@ -182,6 +123,35 @@ function Analytics() {
         </div>
       )}
     </AppShell>
+  );
+}
+
+function AnalyticsSkeleton() {
+  return (
+    <div className="grid gap-6 lg:grid-cols-3">
+      <div className="lg:col-span-2 glass rounded-2xl p-6">
+        <div className="h-4 w-40 rounded shimmer-bg mb-4" />
+        <div className="h-64 rounded-xl shimmer-bg" />
+      </div>
+      <div className="glass rounded-2xl p-6">
+        <div className="h-4 w-24 rounded shimmer-bg mb-4" />
+        <div className="h-64 rounded-xl shimmer-bg" />
+      </div>
+      <div className="lg:col-span-3 glass rounded-2xl p-6">
+        <div className="h-4 w-28 rounded shimmer-bg mb-4" />
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="glass rounded-xl p-3 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg shimmer-bg shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3 w-48 rounded shimmer-bg" />
+                <div className="h-3 w-24 rounded shimmer-bg" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

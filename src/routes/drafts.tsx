@@ -2,17 +2,28 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/AppShell";
 import { GlassCard, GlassPanel } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
+import { GlassInput } from "@/components/glass/GlassInput";
 import { FacebookPreview } from "@/components/facebook/FacebookPreview";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { getUserSupabase } from "@/lib/user-supabase";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { loadBrand, loadInstallStatus, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
+import {
+  useDrafts,
+  useApproveDraft,
+  useRejectDraft,
+  useBulkApproveDrafts,
+  useBulkRejectDrafts,
+  type Draft,
+} from "@/hooks/useAuroraQuery";
 import {
   CheckCircleIcon,
   XMarkIcon,
   PencilIcon,
   SparklesIcon,
   ArrowPathIcon,
+  MagnifyingGlassIcon,
+  CheckIcon,
+  TrashIcon,
 } from "@heroicons/react/24/outline";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -31,95 +42,115 @@ export const Route = createFileRoute("/drafts")({
   ),
 });
 
-type Draft = {
-  id: string;
-  page_id: string;
-  slot_start: string;
-  topic: string;
-  caption: string;
-  hashtags: string[];
-  image_prompt: string;
-  image_url: string | null;
-  status: string;
-  created_at: string;
-};
-
 function DraftsPage() {
-  const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [pageName, setPageName] = useState("");
   const brand = useMemo(() => loadBrand(), []);
+  const pass = getSessionPassphrase();
+  const hasCreds = hasStoredSecrets();
+  const install = loadInstallStatus();
 
-  const fetchDrafts = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const pass = getSessionPassphrase();
-      if (!pass || !hasStoredSecrets()) return;
-      const sb = await getUserSupabase();
-      if (!sb) return;
+  const { data, isLoading, error, refetch } = useDrafts();
+  const drafts = data?.drafts ?? [];
+  const pageName = data?.pageName || brand.brandName || "Your Page";
 
-      const install = loadInstallStatus();
-      if (install.schemaVersion === 0) return;
+  const approveMutation = useApproveDraft();
+  const rejectMutation = useRejectDraft();
+  const bulkApproveMutation = useBulkApproveDrafts();
+  const bulkRejectMutation = useBulkRejectDrafts();
 
-      const [briefRes, pageRes] = await Promise.all([
-        sb
-          .from("content_briefs")
-          .select("id, page_id, slot_start, topic, caption, hashtags, image_prompt, image_url, status, created_at")
-          .eq("status", "draft")
-          .order("slot_start", { ascending: true }),
-        sb.from("pages").select("fb_page_name").limit(1).maybeSingle(),
-      ]);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-      if (briefRes.error) throw briefRes.error;
-      setDrafts((briefRes.data ?? []) as Draft[]);
-      if (pageRes.data) setPageName((pageRes.data as { fb_page_name: string }).fb_page_name);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
+  const filtered = useMemo(() => {
+    if (!search.trim()) return drafts;
+    const q = search.toLowerCase();
+    return drafts.filter(
+      (d) =>
+        d.topic?.toLowerCase().includes(q) ||
+        d.caption?.toLowerCase().includes(q) ||
+        d.hashtags?.some((h) => h.toLowerCase().includes(q))
+    );
+  }, [drafts, search]);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }, []);
 
+  const selectAll = useCallback(() => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map((d) => d.id)));
+    }
+  }, [filtered, selected.size]);
+
+  const handleApprove = useCallback(
+    async (id: string) => {
+      try {
+        await approveMutation.mutateAsync(id);
+        toast.success("Draft approved!");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to approve");
+      }
+    },
+    [approveMutation]
+  );
+
+  const handleReject = useCallback(
+    async (id: string) => {
+      try {
+        await rejectMutation.mutateAsync(id);
+        toast.info("Draft rejected.");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to reject");
+      }
+    },
+    [rejectMutation]
+  );
+
+  const handleBulkApprove = useCallback(async () => {
+    if (selected.size === 0) return;
+    try {
+      await bulkApproveMutation.mutateAsync(Array.from(selected));
+      toast.success(`${selected.size} drafts approved!`);
+      setSelected(new Set());
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to bulk approve");
+    }
+  }, [selected, bulkApproveMutation]);
+
+  const handleBulkReject = useCallback(async () => {
+    if (selected.size === 0) return;
+    try {
+      await bulkRejectMutation.mutateAsync(Array.from(selected));
+      toast.info(`${selected.size} drafts rejected.`);
+      setSelected(new Set());
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to bulk reject");
+    }
+  }, [selected, bulkRejectMutation]);
+
+  // Keyboard shortcuts
   useEffect(() => {
-    fetchDrafts();
-  }, [fetchDrafts]);
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "a" && !e.ctrlKey && !e.metaKey && selected.size > 0) {
+        selectAll();
+      }
+      if (e.key === "Escape") {
+        setSelected(new Set());
+        setSearch("");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selected.size, selectAll]);
 
-  const handleApprove = async (draftId: string) => {
-    try {
-      const sb = await getUserSupabase();
-      if (!sb) return;
-      const { error } = await sb
-        .from("content_briefs")
-        .update({ status: "approved", approved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq("id", draftId);
-      if (error) throw error;
-      setDrafts((prev) => prev.filter((d) => d.id !== draftId));
-      toast.success("Draft approved! It will be published at the scheduled time.");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to approve draft");
-    }
-  };
-
-  const handleReject = async (draftId: string) => {
-    try {
-      const sb = await getUserSupabase();
-      if (!sb) return;
-      const { error } = await sb
-        .from("content_briefs")
-        .update({ status: "skipped", updated_at: new Date().toISOString() })
-        .eq("id", draftId);
-      if (error) throw error;
-      setDrafts((prev) => prev.filter((d) => d.id !== draftId));
-      toast.info("Draft rejected.");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to reject draft");
-    }
-  };
-
-  const pass = getSessionPassphrase();
-  if (!pass || !hasStoredSecrets()) {
+  if (!pass || !hasCreds) {
     return (
       <AppShell>
         <EmptyState
@@ -131,7 +162,6 @@ function DraftsPage() {
     );
   }
 
-  const install = loadInstallStatus();
   if (install.schemaVersion === 0) {
     return (
       <AppShell>
@@ -156,19 +186,54 @@ function DraftsPage() {
             AI-generated content waiting for your approval.
           </p>
         </div>
-        <GlassButton variant="secondary" size="sm" onClick={fetchDrafts} disabled={loading}>
-          <ArrowPathIcon className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+        <GlassButton variant="secondary" size="sm" onClick={() => refetch()} disabled={isLoading}>
+          <ArrowPathIcon className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
           Refresh
         </GlassButton>
       </div>
 
       {error && (
         <GlassCard className="p-4 mb-6 border-destructive/30">
-          <p className="text-sm text-destructive">{error}</p>
+          <p className="text-sm text-destructive">{error.message}</p>
         </GlassCard>
       )}
 
-      {loading ? (
+      {/* Search & Bulk Actions */}
+      {drafts.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search drafts..."
+              className="glass-input w-full h-9 rounded-xl pl-9 pr-3 text-sm"
+              aria-label="Search drafts"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {selected.size > 0 ? `${selected.size} selected` : `${filtered.length} drafts`}
+            </span>
+            {selected.size > 0 && (
+              <>
+                <GlassButton variant="primary" size="sm" onClick={handleBulkApprove}>
+                  <CheckIcon className="h-3.5 w-3.5" /> Approve ({selected.size})
+                </GlassButton>
+                <GlassButton variant="destructive" size="sm" onClick={handleBulkReject}>
+                  <TrashIcon className="h-3.5 w-3.5" /> Reject ({selected.size})
+                </GlassButton>
+                <GlassButton variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+                  Clear
+                </GlassButton>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
             <GlassCard key={i} className="p-5">
@@ -178,31 +243,26 @@ function DraftsPage() {
             </GlassCard>
           ))}
         </div>
-      ) : drafts.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <EmptyState
-          title="No drafts pending"
-          subtitle="When the AI generates content, it will appear here for your review."
+          title={search ? "No matching drafts" : "No drafts pending"}
+          subtitle={search ? "Try a different search term." : "When the AI generates content, it will appear here for your review."}
           icon={<CheckCircleIcon className="h-12 w-12 text-muted-foreground/30" />}
         />
       ) : (
-        <>
-          <div className="mb-4 flex items-center gap-2">
-            <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
-              {drafts.length} pending
-            </span>
-          </div>
-          <div className="grid gap-6 lg:grid-cols-2">
-            {drafts.map((draft) => (
-              <DraftCard
-                key={draft.id}
-                draft={draft}
-                pageName={pageName || brand.brandName || "Your Page"}
-                onApprove={() => handleApprove(draft.id)}
-                onReject={() => handleReject(draft.id)}
-              />
-            ))}
-          </div>
-        </>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {filtered.map((draft) => (
+            <DraftCard
+              key={draft.id}
+              draft={draft}
+              pageName={pageName}
+              selected={selected.has(draft.id)}
+              onSelect={() => toggleSelect(draft.id)}
+              onApprove={() => handleApprove(draft.id)}
+              onReject={() => handleReject(draft.id)}
+            />
+          ))}
+        </div>
       )}
     </AppShell>
   );
@@ -211,21 +271,32 @@ function DraftsPage() {
 function DraftCard({
   draft,
   pageName,
+  selected,
+  onSelect,
   onApprove,
   onReject,
 }: {
   draft: Draft;
   pageName: string;
+  selected: boolean;
+  onSelect: () => void;
   onApprove: () => void;
   onReject: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <GlassCard className="overflow-hidden">
+    <GlassCard className={`overflow-hidden transition-all ${selected ? "ring-2 ring-primary/50" : ""}`}>
       <div className="p-4">
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onSelect}
+              className="h-4 w-4 rounded border-white/20 bg-white/5 accent-primary"
+              aria-label={`Select draft: ${draft.topic || "Untitled"}`}
+            />
             <span className="inline-flex items-center rounded-full border border-accent/30 bg-accent/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-accent">
               draft
             </span>

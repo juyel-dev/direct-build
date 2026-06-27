@@ -12,13 +12,14 @@ import {
   LockOpenIcon,
   PencilIcon,
   DocumentTextIcon,
+  SunIcon,
+  MoonIcon,
 } from "@heroicons/react/24/outline";
 import { GlassButton } from "@/components/glass/GlassButton";
 import { cn } from "@/lib/utils";
 import { clearSessionPassphrase, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
 import { invalidateUserSupabase } from "@/lib/user-supabase";
-import { getUserSupabase } from "@/lib/user-supabase";
-import { loadInstallStatus } from "@/lib/config-store";
+import { useDraftCount } from "@/hooks/useAuroraQuery";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: HomeIcon },
@@ -29,42 +30,45 @@ const NAV = [
   { to: "/settings", label: "Settings", icon: Cog6ToothIcon },
 ] as const;
 
+function useTheme() {
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    if (typeof window === "undefined") return "dark";
+    const stored = localStorage.getItem("aurora-theme");
+    if (stored === "light" || stored === "dark") return stored;
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove("dark", "light");
+    root.classList.add(theme);
+    localStorage.setItem("aurora-theme", theme);
+  }, [theme]);
+
+  const toggle = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+
+  return { theme, toggle };
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [unlocked, setUnlocked] = useState<boolean>(false);
   const [hasSecrets, setHasSecrets] = useState<boolean>(false);
-  const [draftCount, setDraftCount] = useState(0);
+  const { theme, toggle } = useTheme();
+
+  const draftCountQuery = useDraftCount();
+  const draftCount = draftCountQuery.data ?? 0;
 
   useEffect(() => {
     setUnlocked(!!getSessionPassphrase());
     setHasSecrets(hasStoredSecrets());
   }, [pathname]);
 
-  useEffect(() => {
-    if (!unlocked || !hasStoredSecrets()) return;
-    const install = loadInstallStatus();
-    if (install.schemaVersion === 0) return;
-    (async () => {
-      try {
-        const sb = await getUserSupabase();
-        if (!sb) return;
-        const { count } = await sb
-          .from("content_briefs")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "draft");
-        setDraftCount(count ?? 0);
-      } catch {
-        // ignore
-      }
-    })();
-  }, [unlocked, pathname]);
-
   useEffect(() => setOpen(false), [pathname]);
 
   return (
     <div className="min-h-screen">
-      {/* Top bar */}
       <header className="sticky top-0 z-40">
         <div className="glass border-b border-white/10 backdrop-saturate-150">
           <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
@@ -101,6 +105,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </button>
               )}
               <GlassButton
+                variant="ghost"
+                size="icon"
+                onClick={toggle}
+                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+                className="hidden sm:inline-flex h-9 w-9"
+              >
+                {theme === "dark" ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
+              </GlassButton>
+              <GlassButton
                 variant="secondary"
                 size="icon"
                 onClick={() => setOpen(true)}
@@ -113,7 +126,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      {/* Drawer */}
       {open && (
         <div className="fixed inset-0 z-50">
           <div
@@ -154,6 +166,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 );
               })}
             </nav>
+            <div className="mt-4 flex items-center gap-2">
+              <GlassButton variant="ghost" size="sm" onClick={toggle} className="flex-1">
+                {theme === "dark" ? <SunIcon className="h-3.5 w-3.5" /> : <MoonIcon className="h-3.5 w-3.5" />}
+                {theme === "dark" ? "Light mode" : "Dark mode"}
+              </GlassButton>
+            </div>
             <div className="absolute bottom-5 left-5 right-5 text-[11px] text-muted-foreground/70">
               <p>BYOB · BYOK · No accounts.</p>
               <p className="mt-1 opacity-70">Your keys, your Supabase, your data.</p>

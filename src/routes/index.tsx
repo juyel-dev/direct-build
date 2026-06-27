@@ -2,16 +2,10 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/AppShell";
 import { GlassCard, GlassPanel } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
-import { useEffect, useMemo, useState } from "react";
-import { getUserSupabase } from "@/lib/user-supabase";
-import {
-  hasStoredSecrets,
-  getSessionPassphrase,
-  loadInstallStatus,
-  loadBrand,
-} from "@/lib/config-store";
+import { useMemo } from "react";
+import { loadBrand, loadInstallStatus, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
 import { useRealtime } from "@/hooks/useRealtime";
-import { usePageId } from "@/hooks/usePageId";
+import { useActivePageId, useDashboardData } from "@/hooks/useAuroraQuery";
 import {
   SparklesIcon,
   ArrowRightIcon,
@@ -23,7 +17,6 @@ import {
   ChatBubbleLeftIcon,
   ShareIcon,
   CpuChipIcon,
-  ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import { format } from "date-fns";
 
@@ -37,91 +30,19 @@ export const Route = createFileRoute("/")({
   component: Dashboard,
 });
 
-type Brief = {
-  id: string;
-  slot_start: string;
-  topic: string;
-  caption: string;
-  status: string;
-  image_url: string | null;
-};
-
-type Stats = {
-  posts7d: number;
-  briefsPending: number;
-  totalLikes: number;
-  totalComments: number;
-  totalShares: number;
-  workerLastRun: string | null;
-  workerTodayRuns: number;
-};
-
-type SystemEvent = {
-  id: string;
-  severity: string;
-  category: string;
-  message: string;
-  created_at: string;
-};
-
 function Dashboard() {
-  const [ready, setReady] = useState(false);
-  const [hasCreds, setHasCreds] = useState(false);
-  const [installed, setInstalled] = useState(false);
-  const [unlocked, setUnlocked] = useState(false);
-  const [briefs, setBriefs] = useState<Brief[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const brand = useMemo(() => loadBrand(), []);
-  const pageId = usePageId();
+  const install = useMemo(() => loadInstallStatus(), []);
+  const unlocked = !!getSessionPassphrase();
+  const hasCreds = hasStoredSecrets();
+
+  const pageIdQuery = useActivePageId();
+  const pageId = pageIdQuery.data ?? null;
   useRealtime(pageId);
 
-  useEffect(() => {
-    (async () => {
-      const creds = hasStoredSecrets();
-      const inst = loadInstallStatus();
-      const unl = !!getSessionPassphrase();
-      setHasCreds(creds);
-      setInstalled(inst.schemaVersion > 0);
-      setUnlocked(unl);
-      if (!creds || !unl || inst.schemaVersion === 0) {
-        setReady(true);
-        return;
-      }
-      try {
-        const sb = await getUserSupabase();
-        if (!sb) throw new Error("Could not initialize Supabase client.");
-        const [briefRes, postRes, snapRes, eventsRes] = await Promise.all([
-          sb.from("content_briefs").select("id, slot_start, topic, caption, status, image_url").order("slot_start").limit(5),
-          sb.from("posts").select("id, published_at").gte("published_at", new Date(Date.now() - 7 * 86400_000).toISOString()),
-          sb.from("engagement_snapshots").select("likes, comments, shares").order("captured_at", { ascending: false }).limit(100),
-          sb.from("system_events").select("id, severity, category, message, created_at").eq("category", "worker").order("created_at", { ascending: false }).limit(10),
-        ]);
-        if (briefRes.error) throw briefRes.error;
-        setBriefs((briefRes.data ?? []) as Brief[]);
-        const snaps = (snapRes.data ?? []) as { likes: number; comments: number; shares: number }[];
-        const events = (eventsRes.data ?? []) as SystemEvent[];
-        const todayStart = new Date();
-        todayStart.setUTCHours(0, 0, 0, 0);
-        const todayRuns = events.filter((e) => new Date(e.created_at) >= todayStart).length;
-        setStats({
-          posts7d: (postRes.data ?? []).length,
-          briefsPending: (briefRes.data ?? []).filter((b) => b.status === "draft").length,
-          totalLikes: snaps.reduce((a, s) => a + (s.likes ?? 0), 0),
-          totalComments: snaps.reduce((a, s) => a + (s.comments ?? 0), 0),
-          totalShares: snaps.reduce((a, s) => a + (s.shares ?? 0), 0),
-          workerLastRun: events[0]?.created_at ?? null,
-          workerTodayRuns: todayRuns,
-        });
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setReady(true);
-      }
-    })();
-  }, []);
-
-  if (!ready) return <AppShell><LoadingSkeleton /></AppShell>;
+  const { data, isLoading, error } = useDashboardData();
+  const briefs = data?.briefs ?? [];
+  const stats = data?.stats ?? null;
 
   if (!hasCreds) {
     return (
@@ -147,7 +68,7 @@ function Dashboard() {
     );
   }
 
-  if (!installed) {
+  if (install.schemaVersion === 0) {
     return (
       <AppShell>
         <Hero
@@ -155,6 +76,18 @@ function Dashboard() {
           subtitle="Aurora needs to provision your Supabase project (schema, RPCs, storage). It's idempotent and takes under a minute."
           cta={<Link to="/settings"><GlassButton variant="primary" size="lg">Run Setup</GlassButton></Link>}
         />
+      </AppShell>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <AppShell>
+        <div className="mb-8">
+          <div className="h-3 w-16 rounded shimmer-bg" />
+          <div className="mt-2 h-8 w-64 rounded shimmer-bg" />
+        </div>
+        <LoadingSkeleton />
       </AppShell>
     );
   }
@@ -170,7 +103,7 @@ function Dashboard() {
 
       {error && (
         <GlassCard className="p-4 mb-6 border-destructive/30">
-          <p className="text-sm text-destructive">{error}</p>
+          <p className="text-sm text-destructive">{error.message}</p>
         </GlassCard>
       )}
 
@@ -181,7 +114,6 @@ function Dashboard() {
         <Stat icon={<ChatBubbleLeftIcon className="h-5 w-5" />} label="Comments" value={stats?.totalComments ?? 0} />
       </div>
 
-      {/* Worker Status */}
       <GlassCard className="p-4 mb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -329,13 +261,39 @@ function EmptyBriefs() {
 
 function LoadingSkeleton() {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <GlassCard key={i} className="p-5">
-          <div className="h-3 w-20 rounded shimmer-bg" />
-          <div className="mt-4 h-7 w-16 rounded shimmer-bg" />
-        </GlassCard>
-      ))}
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <GlassCard key={i} className="p-5">
+            <div className="h-3 w-20 rounded shimmer-bg" />
+            <div className="mt-4 h-7 w-16 rounded shimmer-bg" />
+          </GlassCard>
+        ))}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2 glass rounded-2xl p-6">
+          <div className="h-4 w-32 rounded shimmer-bg mb-4" />
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="glass rounded-xl p-3 flex items-start gap-3">
+                <div className="h-10 w-10 rounded-lg shimmer-bg shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 w-24 rounded shimmer-bg" />
+                  <div className="h-3 w-full rounded shimmer-bg" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="glass rounded-2xl p-6">
+          <div className="h-4 w-24 rounded shimmer-bg mb-4" />
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-3 w-full rounded shimmer-bg" />
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ScheduleRouteImport } from './routes/schedule'
+import { Route as DraftsRouteImport } from './routes/drafts'
+import { Route as ComposeRouteImport } from './routes/compose'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiProxyRouteImport } from './routes/api/proxy'
@@ -23,6 +25,16 @@ const SettingsRoute = SettingsRouteImport.update({
 const ScheduleRoute = ScheduleRouteImport.update({
   id: '/schedule',
   path: '/schedule',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DraftsRoute = DraftsRouteImport.update({
+  id: '/drafts',
+  path: '/drafts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ComposeRoute = ComposeRouteImport.update({
+  id: '/compose',
+  path: '/compose',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnalyticsRoute = AnalyticsRouteImport.update({
@@ -44,6 +56,8 @@ const ApiProxyRoute = ApiProxyRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
+  '/compose': typeof ComposeRoute
+  '/drafts': typeof DraftsRoute
   '/schedule': typeof ScheduleRoute
   '/settings': typeof SettingsRoute
   '/api/proxy': typeof ApiProxyRoute
@@ -51,6 +65,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
+  '/compose': typeof ComposeRoute
+  '/drafts': typeof DraftsRoute
   '/schedule': typeof ScheduleRoute
   '/settings': typeof SettingsRoute
   '/api/proxy': typeof ApiProxyRoute
@@ -59,21 +75,47 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
+  '/compose': typeof ComposeRoute
+  '/drafts': typeof DraftsRoute
   '/schedule': typeof ScheduleRoute
   '/settings': typeof SettingsRoute
   '/api/proxy': typeof ApiProxyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/analytics' | '/schedule' | '/settings' | '/api/proxy'
+  fullPaths:
+    | '/'
+    | '/analytics'
+    | '/compose'
+    | '/drafts'
+    | '/schedule'
+    | '/settings'
+    | '/api/proxy'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/analytics' | '/schedule' | '/settings' | '/api/proxy'
-  id: '__root__' | '/' | '/analytics' | '/schedule' | '/settings' | '/api/proxy'
+  to:
+    | '/'
+    | '/analytics'
+    | '/compose'
+    | '/drafts'
+    | '/schedule'
+    | '/settings'
+    | '/api/proxy'
+  id:
+    | '__root__'
+    | '/'
+    | '/analytics'
+    | '/compose'
+    | '/drafts'
+    | '/schedule'
+    | '/settings'
+    | '/api/proxy'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalyticsRoute: typeof AnalyticsRoute
+  ComposeRoute: typeof ComposeRoute
+  DraftsRoute: typeof DraftsRoute
   ScheduleRoute: typeof ScheduleRoute
   SettingsRoute: typeof SettingsRoute
   ApiProxyRoute: typeof ApiProxyRoute
@@ -93,6 +135,20 @@ declare module '@tanstack/react-router' {
       path: '/schedule'
       fullPath: '/schedule'
       preLoaderRoute: typeof ScheduleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/drafts': {
+      id: '/drafts'
+      path: '/drafts'
+      fullPath: '/drafts'
+      preLoaderRoute: typeof DraftsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/compose': {
+      id: '/compose'
+      path: '/compose'
+      fullPath: '/compose'
+      preLoaderRoute: typeof ComposeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/analytics': {
@@ -122,6 +178,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalyticsRoute: AnalyticsRoute,
+  ComposeRoute: ComposeRoute,
+  DraftsRoute: DraftsRoute,
   ScheduleRoute: ScheduleRoute,
   SettingsRoute: SettingsRoute,
   ApiProxyRoute: ApiProxyRoute,

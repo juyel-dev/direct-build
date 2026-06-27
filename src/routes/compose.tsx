@@ -6,6 +6,9 @@ import { GlassInput, GlassTextarea, GlassLabel } from "@/components/glass/GlassI
 import { FacebookPreview } from "@/components/facebook/FacebookPreview";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { getUserSupabase } from "@/lib/user-supabase";
 import { loadBrand, loadProviders, loadInstallStatus, getSessionPassphrase, hasStoredSecrets, loadSecrets } from "@/lib/config-store";
 import { proxyFetch } from "@/lib/proxy-fetch";
@@ -36,6 +39,15 @@ export const Route = createFileRoute("/compose")({
   ),
 });
 
+const ComposeSchema = z.object({
+  topic: z.string().min(1, "Topic is required"),
+  caption: z.string().min(1, "Caption is required").max(500, "Caption too long"),
+  hashtags: z.string().optional(),
+  imagePrompt: z.string().optional(),
+});
+
+type ComposeForm = z.infer<typeof ComposeSchema>;
+
 type BriefData = {
   id: string;
   page_id: string;
@@ -53,21 +65,24 @@ function ComposePage() {
   const brand = useMemo(() => loadBrand(), []);
   const providers = useMemo(() => loadProviders(), []);
 
-  const [topic, setTopic] = useState("");
-  const [caption, setCaption] = useState("");
-  const [hashtags, setHashtags] = useState("");
-  const [imagePrompt, setImagePrompt] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState(format(new Date(Date.now() + 3600_000), "yyyy-MM-dd"));
   const [scheduleTime, setScheduleTime] = useState("18:00");
   const [pageId, setPageId] = useState("");
   const [pageName, setPageName] = useState("");
 
-  const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<ComposeForm>({
+    resolver: zodResolver(ComposeSchema),
+    defaultValues: { topic: "", caption: "", hashtags: "", imagePrompt: "" },
+  });
+
+  const topic = watch("topic");
+  const caption = watch("caption");
 
   useEffect(() => {
     (async () => {
@@ -90,10 +105,10 @@ function ComposePage() {
           .single();
         if (brief) {
           const b = brief as BriefData;
-          setTopic(b.topic || "");
-          setCaption(b.caption || "");
-          setHashtags((b.hashtags || []).join(", "));
-          setImagePrompt(b.image_prompt || "");
+          setValue("topic", b.topic || "");
+          setValue("caption", b.caption || "");
+          setValue("hashtags", (b.hashtags || []).join(", "));
+          setValue("imagePrompt", b.image_prompt || "");
           setImageUrl(b.image_url);
           if (b.slot_start) {
             const d = new Date(b.slot_start);
@@ -103,9 +118,9 @@ function ComposePage() {
         }
       }
     })();
-  }, [briefId]);
+  }, [briefId, setValue]);
 
-  const handleGenerateCaption = async () => {
+  const handleGenerateCaption = useCallback(async () => {
     if (!topic.trim()) {
       toast.error("Enter a topic first");
       return;
@@ -142,7 +157,7 @@ function ComposePage() {
       const data = await r.json<{ choices?: { message?: { content?: string } }[] }>();
       const content = data.choices?.[0]?.message?.content?.trim();
       if (content) {
-        setCaption(content);
+        setValue("caption", content);
         toast.success("Caption generated!");
       }
     } catch (e) {
@@ -150,10 +165,11 @@ function ComposePage() {
     } finally {
       setGenerating(false);
     }
-  };
+  }, [topic, brand.voice, providers.llm.model, setValue]);
 
-  const handleGenerateImage = async () => {
-    if (!imagePrompt.trim()) {
+  const handleGenerateImage = useCallback(async () => {
+    const imagePrompt = watch("imagePrompt");
+    if (!imagePrompt?.trim()) {
       toast.error("Enter an image prompt first");
       return;
     }
@@ -168,78 +184,74 @@ function ComposePage() {
     } finally {
       setGeneratingImage(false);
     }
-  };
+  }, [watch]);
 
-  const handlePublishNow = async () => {
-    await saveBrief("approved", true);
-  };
-
-  const handleSchedule = async () => {
-    await saveBrief("approved", false);
-  };
-
-  const saveBrief = async (status: string, publishImmediate: boolean) => {
-    if (!caption.trim() && !topic.trim()) {
-      toast.error("Write a caption or topic before saving");
-      return;
-    }
-    if (!pageId) {
-      toast.error("No Facebook page connected. Run Setup first.");
-      return;
-    }
-
-    try {
-      setSaving(true);
-      setError(null);
-      const sb = await getUserSupabase();
-      if (!sb) return;
-
-      const slotStart = publishImmediate
-        ? new Date().toISOString()
-        : new Date(`${scheduleDate}T${scheduleTime}:00`).toISOString();
-
-      const hashtagArray = hashtags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean)
-        .map((t) => (t.startsWith("#") ? t : `#${t}`));
-
-      const rowData = {
-        page_id: pageId,
-        slot_start: slotStart,
-        topic,
-        caption,
-        hashtags: hashtagArray,
-        image_prompt: imagePrompt,
-        image_url: imageUrl,
-        status,
-        approved_at: status === "approved" ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-      };
-
-      if (briefId) {
-        const { error } = await sb.from("content_briefs").update(rowData).eq("id", briefId);
-        if (error) throw error;
-      } else {
-        const { error } = await sb.from("content_briefs").insert(rowData);
-        if (error) throw error;
+  const saveBrief = useCallback(
+    async (status: string, publishImmediate: boolean) => {
+      const values = watch();
+      if (!values.caption.trim() && !values.topic.trim()) {
+        toast.error("Write a caption or topic before saving");
+        return;
+      }
+      if (!pageId) {
+        toast.error("No Facebook page connected. Run Setup first.");
+        return;
       }
 
-      toast.success(publishImmediate ? "Publishing now!" : "Post scheduled!");
-      if (!briefId) {
-        setTopic("");
-        setCaption("");
-        setHashtags("");
-        setImagePrompt("");
-        setImageUrl(null);
+      try {
+        setSaving(true);
+        setError(null);
+        const sb = await getUserSupabase();
+        if (!sb) return;
+
+        const slotStart = publishImmediate
+          ? new Date().toISOString()
+          : new Date(`${scheduleDate}T${scheduleTime}:00`).toISOString();
+
+        const hashtagArray = (values.hashtags || "")
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .map((t) => (t.startsWith("#") ? t : `#${t}`));
+
+        const rowData = {
+          page_id: pageId,
+          slot_start: slotStart,
+          topic: values.topic,
+          caption: values.caption,
+          hashtags: hashtagArray,
+          image_prompt: values.imagePrompt || "",
+          image_url: imageUrl,
+          status,
+          approved_at: status === "approved" ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (briefId) {
+          const { error } = await sb.from("content_briefs").update(rowData).eq("id", briefId);
+          if (error) throw error;
+        } else {
+          const { error } = await sb.from("content_briefs").insert(rowData);
+          if (error) throw error;
+        }
+
+        toast.success(publishImmediate ? "Publishing now!" : "Post scheduled!");
+        if (!briefId) {
+          setValue("topic", "");
+          setValue("caption", "");
+          setValue("hashtags", "");
+          setValue("imagePrompt", "");
+          setImageUrl(null);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        toast.error(e instanceof Error ? e.message : "Failed to save");
+      } finally {
+        setSaving(false);
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      toast.error(e instanceof Error ? e.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  };
+    },
+    [pageId, scheduleDate, scheduleTime, imageUrl, briefId, setValue, watch]
+  );
 
   const pass = getSessionPassphrase();
   if (!pass || !hasStoredSecrets()) {
@@ -285,27 +297,29 @@ function ComposePage() {
         </GlassCard>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-5">
-        {/* Editor Panel */}
+      <form onSubmit={handleSubmit((data) => saveBrief("approved", false))} className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-3 space-y-5">
           <GlassCard className="p-5">
-            <GlassLabel hint="What is this post about?">Topic</GlassLabel>
+            <GlassLabel hint="What is this post about?" htmlFor="topic">Topic</GlassLabel>
             <GlassInput
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
+              id="topic"
+              {...register("topic")}
               placeholder="e.g. Summer sale announcement"
               className="mt-1.5"
+              aria-invalid={!!errors.topic}
             />
+            {errors.topic && <p className="mt-1 text-xs text-destructive">{errors.topic.message}</p>}
           </GlassCard>
 
           <GlassCard className="p-5">
             <div className="flex items-center justify-between mb-2">
-              <GlassLabel hint={`${caption.length}/280 chars`}>Caption</GlassLabel>
+              <GlassLabel hint={`${caption?.length || 0}/280 chars`} htmlFor="caption">Caption</GlassLabel>
               <GlassButton
+                type="button"
                 variant="secondary"
                 size="sm"
                 onClick={handleGenerateCaption}
-                disabled={generating || !topic.trim()}
+                disabled={generating || !topic?.trim()}
               >
                 {generating ? (
                   <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" />
@@ -316,19 +330,21 @@ function ComposePage() {
               </GlassButton>
             </div>
             <GlassTextarea
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
+              id="caption"
+              {...register("caption")}
               placeholder="Write your post caption here..."
               rows={5}
               className="mt-1.5"
+              aria-invalid={!!errors.caption}
             />
+            {errors.caption && <p className="mt-1 text-xs text-destructive">{errors.caption.message}</p>}
           </GlassCard>
 
           <GlassCard className="p-5">
-            <GlassLabel hint="Comma separated">Hashtags</GlassLabel>
+            <GlassLabel hint="Comma separated" htmlFor="hashtags">Hashtags</GlassLabel>
             <GlassInput
-              value={hashtags}
-              onChange={(e) => setHashtags(e.target.value)}
+              id="hashtags"
+              {...register("hashtags")}
               placeholder="#social, #marketing, #tips"
               className="mt-1.5"
             />
@@ -336,12 +352,13 @@ function ComposePage() {
 
           <GlassCard className="p-5">
             <div className="flex items-center justify-between mb-2">
-              <GlassLabel hint="Generate or paste URL">Image</GlassLabel>
+              <GlassLabel hint="Generate or paste URL" htmlFor="imagePrompt">Image</GlassLabel>
               <GlassButton
+                type="button"
                 variant="secondary"
                 size="sm"
                 onClick={handleGenerateImage}
-                disabled={generatingImage || !imagePrompt.trim()}
+                disabled={generatingImage || !watch("imagePrompt")?.trim()}
               >
                 {generatingImage ? (
                   <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" />
@@ -352,16 +369,16 @@ function ComposePage() {
               </GlassButton>
             </div>
             <GlassInput
-              value={imagePrompt}
-              onChange={(e) => setImagePrompt(e.target.value)}
+              id="imagePrompt"
+              {...register("imagePrompt")}
               placeholder="Describe the image you want to generate..."
               className="mt-1.5"
             />
             {imageUrl && (
               <div className="mt-3 rounded-lg overflow-hidden border border-white/10">
-                <img src={imageUrl} alt="Generated" className="w-full max-h-[300px] object-cover" />
+                <img src={imageUrl} alt="Generated" loading="lazy" className="w-full max-h-[300px] object-cover" />
                 <div className="p-2 flex justify-end">
-                  <GlassButton variant="ghost" size="sm" onClick={() => setImageUrl(null)}>
+                  <GlassButton type="button" variant="ghost" size="sm" onClick={() => setImageUrl(null)}>
                     Remove
                   </GlassButton>
                 </div>
@@ -370,13 +387,12 @@ function ComposePage() {
           </GlassCard>
         </div>
 
-        {/* Preview & Schedule Panel */}
         <div className="lg:col-span-2 space-y-5">
           <GlassPanel title="Preview" description="How it will look on Facebook.">
             <FacebookPreview
               pageName={pageName || brand.brandName || "Your Page"}
-              caption={caption}
-              hashtags={hashtags.split(",").map((t) => t.trim()).filter(Boolean)}
+              caption={caption || ""}
+              hashtags={(watch("hashtags") || "").split(",").map((t) => t.trim()).filter(Boolean)}
               imageUrl={imageUrl}
               scheduledFor={new Date(`${scheduleDate}T${scheduleTime}`)}
             />
@@ -386,8 +402,9 @@ function ComposePage() {
             <GlassLabel>Schedule</GlassLabel>
             <div className="mt-2 grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-muted-foreground">Date</label>
+                <label htmlFor="scheduleDate" className="text-xs text-muted-foreground">Date</label>
                 <input
+                  id="scheduleDate"
                   type="date"
                   value={scheduleDate}
                   onChange={(e) => setScheduleDate(e.target.value)}
@@ -395,8 +412,9 @@ function ComposePage() {
                 />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Time</label>
+                <label htmlFor="scheduleTime" className="text-xs text-muted-foreground">Time</label>
                 <input
+                  id="scheduleTime"
                   type="time"
                   value={scheduleTime}
                   onChange={(e) => setScheduleTime(e.target.value)}
@@ -408,26 +426,27 @@ function ComposePage() {
 
           <div className="flex flex-col gap-3">
             <GlassButton
+              type="button"
               variant="primary"
               size="lg"
-              onClick={handlePublishNow}
-              disabled={saving || (!caption.trim() && !topic.trim())}
+              onClick={() => saveBrief("approved", true)}
+              disabled={saving || (!caption?.trim() && !topic?.trim())}
             >
               {saving ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : <PaperAirplaneIcon className="h-4 w-4" />}
               Publish Now
             </GlassButton>
             <GlassButton
+              type="submit"
               variant="secondary"
               size="lg"
-              onClick={handleSchedule}
-              disabled={saving || (!caption.trim() && !topic.trim())}
+              disabled={saving || (!caption?.trim() && !topic?.trim())}
             >
               <CalendarDaysIcon className="h-4 w-4" />
               Schedule Post
             </GlassButton>
           </div>
         </div>
-      </div>
+      </form>
     </AppShell>
   );
 }
