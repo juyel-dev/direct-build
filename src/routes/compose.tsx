@@ -73,6 +73,7 @@ function ComposePage() {
 
   const [generating, setGenerating] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -185,6 +186,35 @@ function ComposePage() {
       setGeneratingImage(false);
     }
   }, [watch]);
+
+  const handleUploadImage = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image must be under 5MB");
+      return;
+    }
+    try {
+      setUploadingImage(true);
+      const sb = await getUserSupabase();
+      if (!sb) throw new Error("No Supabase client");
+      const ext = file.name.split(".").pop() || "png";
+      const path = `generated-images/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error } = await sb.storage.from("generated-images").upload(path, file, {
+        contentType: file.type,
+        upsert: true,
+      });
+      if (error) throw error;
+      const { data } = sb.storage.from("generated-images").getPublicUrl(path);
+      setImageUrl(data.publicUrl);
+      toast.success("Image uploaded!");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to upload image");
+    } finally {
+      setUploadingImage(false);
+      e.target.value = "";
+    }
+  }, []);
 
   const saveBrief = useCallback(
     async (status: string, publishImmediate: boolean) => {
@@ -352,21 +382,34 @@ function ComposePage() {
 
           <GlassCard className="p-5">
             <div className="flex items-center justify-between mb-2">
-              <GlassLabel hint="Generate or paste URL" htmlFor="imagePrompt">Image</GlassLabel>
-              <GlassButton
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={handleGenerateImage}
-                disabled={generatingImage || !watch("imagePrompt")?.trim()}
-              >
-                {generatingImage ? (
-                  <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <PhotoIcon className="h-3.5 w-3.5" />
-                )}
-                AI Generate
-              </GlassButton>
+              <GlassLabel hint="Generate, upload, or paste URL" htmlFor="imagePrompt">Image</GlassLabel>
+              <div className="flex items-center gap-1.5">
+                <label className="inline-flex items-center justify-center h-8 px-3 text-xs rounded-lg glass text-foreground hover:bg-[oklch(1_0_0_/_0.10)] cursor-pointer transition-all">
+                  <ArrowPathIcon className="h-3.5 w-3.5" />
+                  Upload
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleUploadImage}
+                    disabled={uploadingImage}
+                  />
+                </label>
+                <GlassButton
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleGenerateImage}
+                  disabled={generatingImage || !watch("imagePrompt")?.trim()}
+                >
+                  {generatingImage ? (
+                    <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <PhotoIcon className="h-3.5 w-3.5" />
+                  )}
+                  AI Generate
+                </GlassButton>
+              </div>
             </div>
             <GlassInput
               id="imagePrompt"

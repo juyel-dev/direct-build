@@ -281,14 +281,14 @@ export type EngagementSnap = {
 export type TopPost = { topic: string; url: string | null; score: number };
 export type CostByProvider = { name: string; value: number };
 
-export function useAnalyticsData() {
+export function useAnalyticsData(days: number = 30) {
   return useQuery({
-    queryKey: ["analytics"],
+    queryKey: ["analytics", days],
     queryFn: async () => {
       const sb = await getUserSupabase();
       if (!sb) return { series: [], topPosts: [], costByProvider: [], totalCost: 0 };
 
-      const since = subDays(new Date(), 30).toISOString();
+      const since = subDays(new Date(), days).toISOString();
       const [snaps, posts, briefs, usage] = await Promise.all([
         sb
           .from("engagement_snapshots")

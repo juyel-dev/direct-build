@@ -18,6 +18,7 @@ import {
   Squares2X2Icon,
   ListBulletIcon,
   EyeIcon,
+  MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
 import { proxyFetch } from "@/lib/proxy-fetch";
 import { toast } from "sonner";
@@ -39,6 +40,7 @@ function SchedulePage() {
   const [generating, setGenerating] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("week");
   const [weekOffset, setWeekOffset] = useState(0);
+  const [search, setSearch] = useState("");
   const brand = useMemo(() => loadBrand(), []);
   const inst = useMemo(() => loadInstallStatus(), []);
   const unlocked = !!getSessionPassphrase();
@@ -50,7 +52,17 @@ function SchedulePage() {
 
   const { data, isLoading } = useScheduleData(weekDays, pageId);
   const pages = data?.pages ?? [];
-  const briefs = data?.briefs ?? [];
+  const allBriefs = data?.briefs ?? [];
+  const briefs = useMemo(() => {
+    if (!search.trim()) return allBriefs;
+    const q = search.toLowerCase();
+    return allBriefs.filter(
+      (b) =>
+        b.topic?.toLowerCase().includes(q) ||
+        b.caption?.toLowerCase().includes(q) ||
+        b.hashtags?.some((h) => h.toLowerCase().includes(q))
+    );
+  }, [allBriefs, search]);
   const effectivePageId = pageId || pages[0]?.id || "";
 
   const currentPage = pages.find((p) => p.id === effectivePageId);
@@ -274,6 +286,19 @@ Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene des
             {pages.map((p) => <option key={p.id} value={p.id} className="bg-background">{p.fb_page_name}</option>)}
           </select>
         ) : null}
+        {allBriefs.length > 0 && (
+          <div className="relative">
+            <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search briefs..."
+              className="glass-input h-9 rounded-xl pl-8 pr-3 text-xs w-40"
+              aria-label="Search briefs"
+            />
+          </div>
+        )}
         <div className="flex-1" />
         <GlassButton
           variant="primary"

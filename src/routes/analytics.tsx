@@ -4,6 +4,7 @@ import { GlassPanel } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
 import { loadInstallStatus, getSessionPassphrase } from "@/lib/config-store";
 import { useAnalyticsData } from "@/hooks/useAuroraQuery";
+import { useState } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -24,11 +25,18 @@ export const Route = createFileRoute("/analytics")({
 });
 
 const COLORS = ["oklch(0.78 0.16 195)", "oklch(0.70 0.18 320)", "oklch(0.78 0.16 155)", "oklch(0.82 0.17 80)"];
+const RANGES = [
+  { label: "7d", days: 7 },
+  { label: "14d", days: 14 },
+  { label: "30d", days: 30 },
+  { label: "90d", days: 90 },
+] as const;
 
 function Analytics() {
   const inst = loadInstallStatus();
   const unlocked = !!getSessionPassphrase();
-  const { data, isLoading } = useAnalyticsData();
+  const [range, setRange] = useState(30);
+  const { data, isLoading } = useAnalyticsData(range);
   const series = data?.series ?? [];
   const topPosts = data?.topPosts ?? [];
   const costByProvider = data?.costByProvider ?? [];
@@ -46,9 +54,25 @@ function Analytics() {
 
   return (
     <AppShell>
-      <div className="mb-8">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground">Last 30 days</p>
-        <h1 className="mt-1 text-3xl md:text-4xl font-display font-medium gradient-text">Analytics</h1>
+      <div className="mb-8 flex items-start justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">Insights</p>
+          <h1 className="mt-1 text-3xl md:text-4xl font-display font-medium gradient-text">Analytics</h1>
+        </div>
+        <div className="glass rounded-xl p-0.5 flex">
+          {RANGES.map((r) => (
+            <button
+              key={r.days}
+              onClick={() => setRange(r.days)}
+              className={`h-8 px-3 rounded-lg text-xs font-medium transition ${
+                range === r.days ? "bg-white/15 text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+              aria-label={`Show last ${r.label}`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {isLoading ? (
