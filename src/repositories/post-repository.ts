@@ -29,6 +29,22 @@ export class PostRepository extends BaseRepository {
     return count ?? 0;
   }
 
+  async findPublishedWithBriefs(pageId: string, since: string): Promise<any[]> {
+    const { data, error } = await this.client
+      .from("posts")
+      .select(`
+        id, page_id, published_at, fb_permalink_url,
+        content_briefs!inner(topic, caption, hashtags),
+        engagement_snapshots(likes, comments, shares, captured_at)
+      `)
+      .eq("page_id", pageId)
+      .eq("status", "published")
+      .gte("published_at", since)
+      .order("published_at", { ascending: false });
+    if (error) this.handleError(error, "posts.findPublishedWithBriefs");
+    return data ?? [];
+  }
+
   async findPublishedWithMetrics(since: string): Promise<any[]> {
     const { data, error } = await this.client
       .from("posts")

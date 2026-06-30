@@ -180,6 +180,7 @@ async function seedRecurringJobs(pages: Page[]) {
     await enqueue(page.id, "publish_due_posts", floorBucket(now, 1), {}, 10);
     await enqueue(page.id, "capture_engagement", floorBucket(now, 60), { window_days: 30 }, 0);
     await enqueue(page.id, "compute_strategy", floorBucket(now, 6 * 60), { window_days: 30 }, 0);
+    await enqueue(page.id, "extract_brand_memory", floorBucket(now, 24 * 60), {}, 0);
   }
 }
 
@@ -237,6 +238,8 @@ async function processJob(job: Job, pages: Page[]) {
       detail = await captureEngagement(page, Number(job.payload.window_days ?? 30));
     else if (job.kind === "compute_strategy")
       detail = await computeStrategy(page, Number(job.payload.window_days ?? 30));
+    else if (job.kind === "extract_brand_memory")
+      detail = await extractBrandMemory(page);
     else detail = `Unknown job kind "${job.kind}" skipped.`;
     clearInterval(heartbeatTimer);
     await completeJob(job, "succeeded", detail);
@@ -313,13 +316,27 @@ async function generateBriefIdeas(page: Page, slots: Date[]) {
   if (!aiKey || !baseUrl) return [];
 
   const insights = await loadInsights(page.id);
+  const brandMemory = await loadBrandMemory(page.id);
   const context = page.prompt_overrides ?? {};
+  const brandSnippets = (brandMemory?.top_content_snippets ?? []) as Array<{
+    topic?: string; caption?: string; score?: number;
+  }>;
   const prompt = {
     brand: page.fb_page_name,
     voice: page.default_brand_voice ?? "",
     audience: String(context.audience ?? ""),
+    audience_profile: brandMemory?.audience_profile ?? {},
     allowed_topics: Array.isArray(context.topics) ? context.topics : [],
     strategy: insights,
+    brand_identity: brandMemory?.brand_descriptors ?? [],
+    writing_style: brandMemory?.writing_style_notes ?? "",
+    tone_guidelines: brandMemory?.tone_guidelines ?? "",
+    effective_hashtags: brandMemory?.effective_hashtags ?? [],
+    top_posts: brandSnippets.slice(0, 3).map((s: Record<string, unknown>) => ({
+      topic: s.topic,
+      caption: typeof s.caption === "string" ? s.caption.slice(0, 280) : "",
+    })),
+    avoided_topics: brandMemory?.avoided_topics ?? [],
     slots: slots.map((slot) => slot.toISOString()),
   };
 
@@ -633,6 +650,81 @@ async function computeStrategy(page: Page, windowDays: number) {
   return `Updated strategy insights from ${data?.length ?? 0} posts.`;
 }
 
+async function extractBrandMemory(page: Page) {
+  const windowMs = 90 * 86400_000;
+  const since = new Date(Date.now() - windowMs).toISOString();
+
+  const { data: posts, error: postsError } = await supabase
+    .from("posts")
+    .select(`
+      id,
+      content_briefs!inner(topic, caption, hashtags),
+      engagement_snapshots(likes, comments, shares, captured_at)
+    `)
+    .eq("page_id", page.id)
+    .eq("status", "published")
+    .gte("published_at", since)
+    .order("published_at", { ascending: false });
+  if (postsError) throw postsError;
+
+  if (!posts || posts.length === 0) return "No published posts found for brand extraction.";
+
+  const hashtagCount = new Map<string, number>();
+  const tones = new Set<string>();
+  const snippets: Array<{ topic: string; caption: string; score: number }> = [];
+
+  for (const post of posts as Array<{
+    content_briefs?: { topic?: string; caption?: string; hashtags?: string[] };
+    engagement_snapshots?: Array<{ likes?: number; comments?: number; shares?: number }>;
+  }>) {
+    const brief = post.content_briefs;
+    if (!brief) continue;
+
+    if (Array.isArray(brief.hashtags)) {
+      for (const tag of brief.hashtags) {
+        hashtagCount.set(tag, (hashtagCount.get(tag) ?? 0) + 1);
+      }
+    }
+
+    const snaps = post.engagement_snapshots ?? [];
+    const latest = snaps[snaps.length - 1] ?? {};
+    const score = (latest.likes ?? 0) + (latest.comments ?? 0) * 2 + (latest.shares ?? 0) * 3;
+
+    if (brief.caption && score > 0) {
+      snippets.push({ topic: brief.topic ?? "", caption: brief.caption, score });
+      if (brief.caption.length < 100) tones.add("concise");
+      else if (brief.caption.length < 200) tones.add("moderate");
+      else tones.add("detailed");
+    }
+  }
+
+  snippets.sort((a, b) => b.score - a.score);
+
+  const effectiveHashtags = Array.from(hashtagCount.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([tag]) => tag);
+
+  const now = new Date().toISOString();
+  const { error: upsertError } = await supabase.from("brand_memory").upsert({
+    page_id: page.id,
+    writing_style_notes: Array.from(tones).length
+      ? `Posts tend to be ${Array.from(tones).join(", ")} in length.`
+      : "",
+    effective_hashtags: effectiveHashtags,
+    top_content_snippets: snippets.slice(0, 5).map((s) => ({
+      topic: s.topic,
+      caption: typeof s.caption === "string" ? s.caption.slice(0, 200) : "",
+      score: s.score,
+    })),
+    auto_extracted_at: now,
+    updated_at: now,
+  }, { onConflict: "page_id" });
+
+  if (upsertError) throw upsertError;
+  return `Extracted brand memory from ${posts.length} posts.`;
+}
+
 async function completeJob(job: Job, status: string, detail: string) {
   const retryAt =
     status === "failed_retryable"
@@ -664,6 +756,29 @@ async function loadInsights(pageId: string) {
     .eq("window_days", 30)
     .maybeSingle();
   return data ?? {};
+}
+
+type BrandMemoryRow = {
+  brand_descriptors: string[];
+  audience_profile: Json;
+  writing_style_notes: string;
+  effective_hashtags: string[];
+  top_content_snippets: Json[];
+  tone_guidelines: string;
+  avoided_topics: string[];
+};
+
+async function loadBrandMemory(pageId: string): Promise<BrandMemoryRow | null> {
+  const { data, error } = await supabase
+    .from("brand_memory")
+    .select("brand_descriptors, audience_profile, writing_style_notes, effective_hashtags, top_content_snippets, tone_guidelines, avoided_topics")
+    .eq("page_id", pageId)
+    .maybeSingle();
+  if (error) {
+    log("warn", "Brand memory load failed", { page_id: pageId, error: messageOf(error) });
+    return null;
+  }
+  return data as BrandMemoryRow | null;
 }
 
 async function logUsage(pageId: string, jobId: string | null, provider: string, model: string) {

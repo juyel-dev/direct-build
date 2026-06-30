@@ -429,4 +429,70 @@ where id = 1;
 insert into public._migrations (id, name) values (5, 'worker_reliability') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 6,
+    name: "brand_memory",
+    sql: `
+-- Brand Memory: AI's understanding of page identity, audience, and successful content
+create table if not exists public.brand_memory (
+  id uuid primary key default gen_random_uuid(),
+  page_id uuid not null references public.pages(id) on delete cascade,
+  brand_descriptors text[] not null default '{}',
+  audience_profile jsonb not null default '{}',
+  writing_style_notes text not null default '',
+  effective_hashtags text[] not null default '{}',
+  top_content_snippets jsonb not null default '[]',
+  tone_guidelines text not null default '',
+  avoided_topics text[] not null default '{}',
+  auto_extracted_at timestamptz,
+  manually_edited_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (page_id)
+);
+
+-- RLS: same pattern as other tables
+alter table public.brand_memory enable row level security;
+
+drop policy if exists "user_or_open" on public.brand_memory;
+create policy "user_or_open" on public.brand_memory
+  for all
+  using (
+    case
+      when auth.uid() is not null then user_id = auth.uid()
+      else true
+    end
+  )
+  with check (
+    case
+      when auth.uid() is not null then user_id = auth.uid()
+      else true
+    end
+  );
+
+-- Add user_id column
+alter table public.brand_memory add column if not exists user_id uuid references auth.users(id) on delete cascade;
+create index if not exists idx_brand_memory_page on public.brand_memory (page_id);
+create index if not exists idx_brand_memory_user on public.brand_memory (user_id);
+
+-- Trigger for auto-setting user_id
+drop trigger if exists trg_set_user_id on public.brand_memory;
+create trigger trg_set_user_id
+  before insert on public.brand_memory
+  for each row
+  execute function public.set_user_id();
+
+-- Grants
+grant select, insert, update, delete on public.brand_memory to anon, authenticated;
+grant all on public.brand_memory to service_role;
+
+update public.app_settings
+set schema_version = 6,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('brand_memory', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (6, 'brand_memory') on conflict (id) do nothing;
+`,
+  },
 ];

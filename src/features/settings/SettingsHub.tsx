@@ -29,6 +29,7 @@ import {
   CpuChipIcon,
   PhotoIcon,
   MegaphoneIcon,
+  LightBulbIcon,
 } from "@heroicons/react/24/outline";
 import { StatusStrip, SectionRow, type SheetKey } from "./shared";
 import { SupabaseSheet } from "./SupabaseSheet";
@@ -36,6 +37,7 @@ import { FacebookSheet } from "./FacebookSheet";
 import { LLMSheet } from "./LLMSheet";
 import { ImageSheet } from "./ImageSheet";
 import { BrandSheet } from "./BrandSheet";
+import { BrandMemorySheet } from "./BrandMemorySheet";
 import { SetupCard } from "./SetupCard";
 import { DangerCard } from "./DangerCard";
 
@@ -230,6 +232,14 @@ export function SettingsHub() {
         optional
         onClick={() => setSheet("brand")}
       />
+      <SectionRow
+        icon={<LightBulbIcon className="h-5 w-5" />}
+        title="Brand memory"
+        subtitle="AI learns your style, audience, and successful content"
+        ok={false}
+        optional
+        onClick={() => setSheet("brand_memory")}
+      />
 
       <SetupCard
         secrets={secrets}
@@ -290,6 +300,10 @@ export function SettingsHub() {
           saveBrand(b);
           setBrand(b);
         }}
+      />
+      <BrandMemorySheet
+        open={sheet === "brand_memory"}
+        onClose={() => setSheet(null)}
       />
     </div>
   );

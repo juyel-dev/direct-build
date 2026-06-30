@@ -122,3 +122,19 @@ export type StrategyInsight = {
   avg_engagement_rate: number | null;
   computed_at: string;
 };
+
+export type BrandMemory = {
+  id: string;
+  page_id: string;
+  brand_descriptors: string[];
+  audience_profile: Json;
+  writing_style_notes: string;
+  effective_hashtags: string[];
+  top_content_snippets: Json[];
+  tone_guidelines: string;
+  avoided_topics: string[];
+  auto_extracted_at: string | null;
+  manually_edited_at: string | null;
+  created_at: string;
+  updated_at: string;
+};

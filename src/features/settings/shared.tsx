@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { type TestResult } from "@/lib/test-connections";
 
-export type SheetKey = "supabase" | "facebook" | "llm" | "image" | "brand" | null;
+export type SheetKey = "supabase" | "facebook" | "llm" | "image" | "brand" | "brand_memory" | null;
 
 export function Field({
   label,
