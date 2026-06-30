@@ -337,7 +337,7 @@ bun install           # Install dependencies
 bun run dev           # Start dev server
 bun run build         # Production build (Vercel preset)
 bun run tsc --noEmit  # TypeScript check (REQUIRED before commit)
-bun run test          # Run Vitest (51 tests)
+bun run test          # Run Vitest (51 tests: 33 original + 11 proxy-validation + 7 schedule.service)
 bun run test:watch    # Vitest in watch mode
 bun run lint          # ESLint
 bun run format        # Prettier
