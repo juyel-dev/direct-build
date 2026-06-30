@@ -3,7 +3,8 @@
 **Project:** Aurora — AI Facebook Autopilot
 **Repository:** https://github.com/juyel-dev/direct-build
 **Handover Date:** July 2026
-**Previous Agents:** 2 (OpenCode)
+**Previous Agents:** 3 (OpenCode)
+**Phase 3.5:** Accepted — worker heartbeat/circuit breaker, TypeScript strict mode, migration 5
 
 ---
 
@@ -14,13 +15,14 @@ Aurora is an open-source AI Facebook Autopilot that follows the BYOB/BYOK model 
 **Core Workflow:** Planning → Draft → Approval → Scheduling → Publishing → Analytics
 
 ### Product Vision (DO NOT BREAK)
-- AI Facebook Autopilot
+- AI Facebook Autopilot — **Facebook-first. No other platforms until Phase 5+**
 - Open-source
 - BYOB/BYOK (user owns Supabase project)
 - One-click setup wizard
-- AI content generation
+- AI content generation with brand memory
 - Glassmorphism UI
 - Keep existing workflow untouched
+- Growth Intelligence: analytics, reports, actionable insights
 
 ---
 
@@ -278,55 +280,47 @@ vitest.config.ts                             # Vitest configuration
 
 ---
 
+## Product Direction
+
+**Aurora is a Facebook-first platform.** Build Facebook dominance before any multi-platform expansion. Do NOT implement Instagram, LinkedIn, TikTok, or Twitter/X integrations.
+
+Phase 4 focus: **Facebook Growth Intelligence**. Keep architecture flexible for future platforms (prefer abstractions over hard-coded Facebook logic) but do not add any other platform code.
+
+---
+
 ## Recommended Next Tasks (Phase 4)
 
 ### Priority Order
 
-1. **Multi-Platform Expansion**
-   - Create Platform abstraction interfaces (`src/platforms/`)
-   - Instagram Graph API integration (Facebook shared inbox)
-   - LinkedIn API integration
-   - TikTok API integration
-   - Unify posting window config across platforms
+1. **AI Content Strategy**
+   - Smarter content planning: use historical engagement data to suggest topics with highest predicted performance
+   - Performance-based suggestions: recommend post types (photo, text, link) based on past engagement per hour/day
+   - Brand voice improvement: analyze successful vs. underperforming posts to refine `default_brand_voice`; surface tone guidance in the compose UI
+   - Audience understanding: extract audience demographic signals from engagement patterns (best hours, content length preference)
 
-2. **Observability & Monitoring**
-   - Add `/health` and `/ready` endpoints
-   - Build simple admin dashboard for worker stats (jobs processed, failures, retries)
-   - Add Prometheus-compatible metrics endpoint for Vercel
+2. **Facebook Automation Improvements**
+   - Smarter scheduling: honor timezone-aware windows; avoid scheduling during low-engagement hours detected by strategy insights
+   - Approval workflow: add review/reject step before publishing; notify user via in-app toast when posts await approval
+   - Failed job recovery: add "Retry" button in Settings → Worker Status for failed jobs; surface `last_error` clearly
+   - Publishing reliability: add pre-publish validation (page token still valid, image URL reachable, caption length within limits)
 
-3. **API Key Management**
-   - Add API key rotation workflow in Settings UI
-   - Add expiration dates for stored credentials
-   - Add key validation on save (test connection before storing)
+3. **Analytics Upgrade**
+   - Content performance insights: per-post score (likes + comments×2 + shares×3), trend lines, best/worst performers
+   - Growth trends: follower growth proxy (reach + impressions over 7/30/90 day windows), weekly change indicators
+   - Engagement analysis: breakdown by day-of-week, hour, post type; heatmap visualization
+   - Actionable recommendations: "Post on Tuesdays at 10AM for 40% higher engagement" — surfaced directly on dashboard
 
-4. **Image Optimization Pipeline**
-   - Add WebP/AVIF conversion on upload
-   - Add responsive srcset generation
-   - Add CDN caching with signed URLs
+4. **Brand Memory System**
+   - Build a `brand_memory` table storing: page identity descriptors, audience profile, top-performing content snippets, writing style samples
+   - Worker reads brand memory when generating briefs (inject into LLM context)
+   - UI page in Settings → Brand Profile to review/edit what the AI remembers
+   - Auto-extract from successful posts: tone, length, common phrases, effective hashtags
 
-5. **Collaboration Features**
-   - Team member invitations via Supabase Auth
-   - Role-based access (admin, editor, viewer)
-   - Activity audit log
-
-6. **Rate Limiting Refinements**
-   - Migrate from in-memory to persisted rate limits (Supabase or Upstash)
-   - Add per-user rate limits vs. per-IP
-   - Add rate limit headers in responses
-
-4. **Image Pipeline Enhancement**
-   - WebP/AVIF server-side conversion on uploaded images
-   - Responsive srcset generation
-
-5. **Auth Hardening**
-   - Enable Migration 3 (auth_user_isolation) by default for new installs
-   - Add Supabase Auth UI integration
-   - RLS policy verification
-
-6. **Analytics Expansion**
-   - Performance tracking over longer windows
-   - Export/CSV download
-   - Comparison periods
+5. **User Proof / SaaS Readiness**
+   - Reports: weekly/monthly PDF/CSV export of content performance, growth metrics, publishing activity
+   - Growth dashboards: visual summary of key metrics (posts published, engagement rate, follower growth proxy, best content)
+   - Export: one-click CSV download for any analytics view
+   - Case-study friendly analytics: time-range comparisons (this month vs last month), highlight wins (best post, biggest growth day)
 
 ---
 
