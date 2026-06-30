@@ -4,11 +4,10 @@ import { GlassPanel } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
 import { BottomSheet } from "@/components/glass/BottomSheet";
 import { FacebookPreview } from "@/components/facebook/FacebookPreview";
-import { useMemo, useState, useCallback } from "react";
-import { loadBrand, loadInstallStatus, getSessionPassphrase } from "@/lib/config-store";
-import { useScheduleData, type ScheduleBrief, type Page } from "@/hooks/useAuroraQuery";
-import { getUserSupabase } from "@/lib/user-supabase";
-import { addDays, addMinutes, format, isSameDay, startOfDay } from "date-fns";
+import { useMemo } from "react";
+import { loadInstallStatus, getSessionPassphrase } from "@/lib/config-store";
+import { useSchedule, type ViewMode } from "@/hooks/useSchedule";
+import { format, addMinutes } from "date-fns";
 import {
   PlusIcon,
   SparklesIcon,
@@ -20,8 +19,6 @@ import {
   EyeIcon,
   MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
-import { proxyFetch } from "@/lib/proxy-fetch";
-import { toast } from "sonner";
 import { WeekGrid } from "@/features/schedule/WeekGrid";
 import { TimelineList } from "@/features/schedule/TimelineList";
 import { BriefEditor } from "@/features/schedule/BriefEditor";
@@ -31,194 +28,37 @@ export const Route = createFileRoute("/schedule")({
   component: SchedulePage,
 });
 
-type ViewMode = "week" | "list";
-
 function SchedulePage() {
-  const [pageId, setPageId] = useState<string>("");
-  const [editing, setEditing] = useState<ScheduleBrief | null>(null);
-  const [previewing, setPreviewing] = useState<ScheduleBrief | null>(null);
-  const [generating, setGenerating] = useState<string | null>(null);
-  const [view, setView] = useState<ViewMode>("week");
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [search, setSearch] = useState("");
-  const brand = useMemo(() => loadBrand(), []);
+    const {
+    pageId,
+    pages,
+    briefs,
+    currentPage,
+    editing,
+    previewing,
+    generating,
+    view,
+    weekDays,
+    search,
+    isLoading,
+    brand,
+    setPageId,
+    setEditing,
+    setPreviewing,
+    setView,
+    setWeekOffset,
+    setSearch,
+    createBriefAt,
+    saveBrief,
+    deleteBrief,
+    generateCaption,
+    onDragStart,
+    onDropOnDay,
+    nextSuggestedSlot,
+  } = useSchedule();
+
   const inst = useMemo(() => loadInstallStatus(), []);
   const unlocked = !!getSessionPassphrase();
-
-  const weekDays = useMemo(() => {
-    const start = addDays(startOfDay(new Date()), weekOffset * 7);
-    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
-  }, [weekOffset]);
-
-  const { data, isLoading } = useScheduleData(weekDays, pageId);
-  const pages = data?.pages ?? [];
-  const allBriefs = data?.briefs ?? [];
-  const briefs = useMemo(() => {
-    if (!search.trim()) return allBriefs;
-    const q = search.toLowerCase();
-    return allBriefs.filter(
-      (b) =>
-        b.topic?.toLowerCase().includes(q) ||
-        b.caption?.toLowerCase().includes(q) ||
-        b.hashtags?.some((h) => h.toLowerCase().includes(q))
-    );
-  }, [allBriefs, search]);
-  const effectivePageId = pageId || pages[0]?.id || "";
-
-  const currentPage = pages.find((p) => p.id === effectivePageId);
-
-  const nextSuggestedSlot = useCallback(
-    (forDay: Date): Date => {
-      const used = briefs
-        .filter((b) => isSameDay(new Date(b.slot_start), forDay))
-        .map((b) => new Date(b.slot_start).getTime());
-      const windows = brand.postingWindows.length ? brand.postingWindows : [{ hour: 9, minute: 0 }];
-      for (const w of windows) {
-        const t = new Date(forDay);
-        t.setHours(w.hour, w.minute, 0, 0);
-        if (!used.includes(t.getTime())) return t;
-      }
-      const last = used.length ? new Date(Math.max(...used)) : new Date(forDay).setHours(9, 0, 0, 0);
-      return addMinutes(new Date(last), 120);
-    },
-    [briefs, brand.postingWindows]
-  );
-
-  const createBriefAt = useCallback(
-    async (slot: Date) => {
-      if (!effectivePageId) return;
-      const sb = await getUserSupabase();
-      if (!sb) return;
-      const { data, error } = await sb
-        .from("content_briefs")
-        .insert({
-          page_id: effectivePageId,
-          slot_start: slot.toISOString(),
-          topic: "",
-          caption: "",
-          hashtags: [],
-          image_prompt: "",
-          status: "draft",
-        })
-        .select("*")
-        .single();
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-      toast.success("Brief created!");
-      setEditing(data as ScheduleBrief);
-    },
-    [effectivePageId]
-  );
-
-  const patchBrief = useCallback(async (id: string, patch: Partial<ScheduleBrief>) => {
-    const sb = await getUserSupabase();
-    if (!sb) return;
-    const { error } = await sb.from("content_briefs").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
-    if (error) {
-      toast.error(error.message);
-    }
-  }, []);
-
-  const saveBrief = useCallback(
-    async (b: ScheduleBrief) => {
-      await patchBrief(b.id, {
-        topic: b.topic,
-        caption: b.caption,
-        hashtags: b.hashtags,
-        image_prompt: b.image_prompt,
-        image_url: b.image_url,
-        status: b.status,
-        slot_start: b.slot_start,
-      });
-      setEditing(null);
-      toast.success("Brief saved!");
-    },
-    [patchBrief]
-  );
-
-  const deleteBrief = useCallback(
-    async (id: string) => {
-      const sb = await getUserSupabase();
-      if (!sb) return;
-      const { error } = await sb.from("content_briefs").delete().eq("id", id);
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-      setEditing(null);
-      toast.info("Brief deleted.");
-    },
-    []
-  );
-
-  const generateCaption = useCallback(
-    async (b: ScheduleBrief) => {
-      setGenerating(b.id);
-      try {
-        const { getSessionPassphrase: gp, loadSecrets: ls } = await import("@/lib/config-store");
-        const pass = gp();
-        const secrets = pass ? await ls(pass) : null;
-        if (!secrets?.aiApiKey) throw new Error("Add an LLM API key in Settings ▸ Secrets first.");
-        const providers = await import("@/lib/config-store").then((m) => m.loadProviders());
-        const baseUrl = providers.llm.baseUrl || defaultBaseUrl(providers.llm.type);
-        if (!baseUrl) throw new Error("Configure a Base URL for the custom provider.");
-        const sys = `You are a social media copywriter for the brand "${brand.brandName || "the brand"}".
-Voice: ${brand.voice || "warm, knowledgeable"}.
-Audience: ${brand.audience || "general"}.
-Write JSON only: {"topic": string, "caption": string, "hashtags": string[], "image_prompt": string}.
-Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene description.`;
-        const user = `Topic seed: ${b.topic || "anything that fits the brand"}. Slot: ${format(new Date(b.slot_start), "EEEE HH:mm")}.`;
-        const r = await proxyFetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
-          method: "POST",
-          headers: { "content-type": "application/json", authorization: `Bearer ${secrets.aiApiKey}` },
-          body: JSON.stringify({
-            model: providers.llm.model,
-            messages: [{ role: "system", content: sys }, { role: "user", content: user }],
-            response_format: { type: "json_object" },
-            temperature: 0.7,
-          }),
-        });
-        const j = await r.json<{ choices?: { message?: { content?: string } }[]; error?: { message?: string } }>();
-        if (!r.ok) throw new Error(j.error?.message ?? "LLM call failed.");
-        const content = j.choices?.[0]?.message?.content ?? "{}";
-        const parsed = JSON.parse(extractJSON(content));
-        const updated: ScheduleBrief = {
-          ...b,
-          topic: parsed.topic || b.topic,
-          caption: parsed.caption || b.caption,
-          hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : b.hashtags,
-          image_prompt: parsed.image_prompt || b.image_prompt,
-        };
-        setEditing(updated);
-        toast.success("Content generated!");
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : String(e));
-      } finally {
-        setGenerating(null);
-      }
-    },
-    [brand]
-  );
-
-  function onDragStart(e: React.DragEvent, b: ScheduleBrief) {
-    e.dataTransfer.setData("text/brief-id", b.id);
-    e.dataTransfer.effectAllowed = "move";
-  }
-
-  async function onDropOnDay(e: React.DragEvent, day: Date) {
-    e.preventDefault();
-    const id = e.dataTransfer.getData("text/brief-id");
-    const b = briefs.find((x) => x.id === id);
-    if (!b) return;
-    const cur = new Date(b.slot_start);
-    if (isSameDay(cur, day)) return;
-    const next = new Date(day);
-    next.setHours(cur.getHours(), cur.getMinutes(), 0, 0);
-    await patchBrief(b.id, { slot_start: next.toISOString() });
-    toast.success("Brief moved!");
-  }
 
   if (inst.schemaVersion === 0 || !unlocked) {
     return (
@@ -278,7 +118,7 @@ Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene des
         </div>
         {pages.length > 1 ? (
           <select
-            value={effectivePageId}
+            value={pageId}
             onChange={(e) => setPageId(e.target.value)}
             className="glass-input h-9 rounded-xl px-3 text-xs"
             aria-label="Select page"
@@ -286,7 +126,7 @@ Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene des
             {pages.map((p) => <option key={p.id} value={p.id} className="bg-background">{p.fb_page_name}</option>)}
           </select>
         ) : null}
-        {allBriefs.length > 0 && (
+        {briefs.length > 0 && (
           <div className="relative">
             <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <input
@@ -324,7 +164,16 @@ Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene des
           onPreview={(b) => setPreviewing(b)}
           onDragStart={onDragStart}
           onDrop={onDropOnDay}
-          onQuickTime={(b, mins) => patchBrief(b.id, { slot_start: addMinutes(new Date(b.slot_start), mins).toISOString() })}
+          onQuickTime={(b, mins) => {
+            import("@/services/supabase-factory").then((m) => m.createUserClient()).then((sb) => {
+              if (!sb) return;
+              import("@/services/publishing/publishing.service").then(({ PublishingService }) => {
+                new PublishingService(sb).patchBrief(b.id, {
+                  slot_start: addMinutes(new Date(b.slot_start), mins).toISOString(),
+                });
+              });
+            });
+          }}
         />
       )}
 
@@ -391,22 +240,4 @@ Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene des
       </BottomSheet>
     </AppShell>
   );
-}
-
-function extractJSON(s: string): string {
-  const m = s.match(/\{[\s\S]*\}/);
-  return m ? m[0] : s;
-}
-
-function defaultBaseUrl(t: string): string {
-  switch (t) {
-    case "openai": return "https://api.openai.com/v1";
-    case "openrouter": return "https://openrouter.ai/api/v1";
-    case "nvidia": return "https://integrate.api.nvidia.com/v1";
-    case "groq": return "https://api.groq.com/openai/v1";
-    case "anthropic": return "https://api.anthropic.com/v1";
-    case "ollama": return "http://localhost:11434/v1";
-    case "lm_studio": return "http://localhost:1234/v1";
-    default: return "";
-  }
 }

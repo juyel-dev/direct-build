@@ -355,8 +355,8 @@ function DraftCard({
         <div className="border-t border-white/5 p-4">
           <FacebookPreview
             pageName={pageName}
-            caption={draft.caption}
-            hashtags={draft.hashtags}
+            caption={draft.caption ?? ""}
+            hashtags={draft.hashtags ?? []}
             imageUrl={draft.image_url}
             scheduledFor={new Date(draft.slot_start)}
           />
