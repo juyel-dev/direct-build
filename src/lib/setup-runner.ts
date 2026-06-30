@@ -16,6 +16,7 @@ import {
   type Secrets,
 } from "./config-store";
 import { proxyFetch } from "./proxy-fetch";
+import { logger } from "../logger";
 
 export type SetupStepStatus = "pending" | "running" | "done" | "error";
 export interface SetupStep {
@@ -121,38 +122,48 @@ export async function runSetup(
       if (!secrets.facebookPageId || !secrets.facebookPageToken) {
         return "Skipped — no Facebook page configured yet.";
       }
-      const r = await proxyFetch(
-        `https://graph.facebook.com/v21.0/${encodeURIComponent(secrets.facebookPageId)}?fields=id,name&access_token=${encodeURIComponent(secrets.facebookPageToken)}`,
-      );
+      const r = await proxyFetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(secrets.facebookPageId)}`, {
+        headers: { Authorization: `Bearer ${secrets.facebookPageToken}` },
+      });
       const j = await r.json<{ id?: string; name?: string; error?: { message: string } }>();
       if (j.error) throw new Error(j.error.message);
-      const sql = `insert into public.pages (fb_page_id, fb_page_name)
-        values ('${(j.id ?? "").replace(/'/g, "''")}', '${(j.name ?? "Unnamed").replace(/'/g, "''")}')
-        on conflict (fb_page_id) do update set fb_page_name = excluded.fb_page_name;`;
-      await runSql(secrets.supabasePAT, ref, sql);
+      await runSql(
+        secrets.supabasePAT,
+        ref,
+        `insert into public.pages (fb_page_id, fb_page_name)
+         values ($1, $2)
+         on conflict (fb_page_id) do update set fb_page_name = excluded.fb_page_name;`,
+        [j.id ?? "", j.name ?? "Unnamed"],
+      );
       return `Seeded page ${j.name} (${j.id}).`;
     });
 
     await stepRunner({ key: "brand-sync", label: "Sync brand automation settings" }, async () => {
       if (!secrets.facebookPageId) return "Skipped — no Facebook page configured yet.";
-      const promptOverrides = sqlLiteral(
-        JSON.stringify({
-          brandName: brand.brandName,
-          audience: brand.audience,
-          topics: brand.topics,
-        }),
+      const promptOverrides = JSON.stringify({
+        brandName: brand.brandName,
+        audience: brand.audience,
+        topics: brand.topics,
+      });
+      await runSql(
+        secrets.supabasePAT,
+        ref,
+        `update public.pages
+         set default_brand_voice = $1,
+             default_posting_windows = $2::jsonb,
+             posting_mode = $3,
+             max_posts_per_day = $4,
+             prompt_overrides = $5::jsonb
+         where fb_page_id = $6;`,
+        [
+          brand.voice,
+          JSON.stringify(brand.postingWindows),
+          brand.postingMode,
+          Math.max(1, Math.min(10, Number(brand.maxPostsPerDay) || 1)),
+          promptOverrides,
+          secrets.facebookPageId,
+        ],
       );
-      const windows = sqlLiteral(JSON.stringify(brand.postingWindows));
-      const sql = `
-update public.pages
-set default_brand_voice = ${sqlLiteral(brand.voice)},
-    default_posting_windows = ${windows}::jsonb,
-    posting_mode = ${sqlLiteral(brand.postingMode)},
-    max_posts_per_day = ${Math.max(1, Math.min(10, Number(brand.maxPostsPerDay) || 1))},
-    prompt_overrides = ${promptOverrides}::jsonb
-where fb_page_id = ${sqlLiteral(secrets.facebookPageId)};
-`;
-      await runSql(secrets.supabasePAT, ref, sql);
       return `Synced ${brand.postingMode.replace("_", " ")} mode and ${brand.postingWindows.length} posting windows.`;
     });
 
@@ -189,29 +200,16 @@ function buildCronSql(functionUrl: string, anonKey: string, automationSecret: st
     "x-automation-secret": automationSecret,
   });
   const body = JSON.stringify({ trigger: "pg_cron" });
-  return `
-do $$
-begin
-  perform cron.unschedule('aurora-worker-every-minute');
-exception when others then
-  null;
-end $$;
-
-select cron.schedule(
+  return `select cron.schedule(
   'aurora-worker-every-minute',
   '* * * * *',
   $cron$
     select net.http_post(
-      url := ${sqlLiteral(functionUrl)},
-      headers := ${sqlLiteral(headers)}::jsonb,
-      body := ${sqlLiteral(body)}::jsonb,
+      url := '${functionUrl.replace(/'/g, "'\\''")}',
+      headers := '${headers.replace(/'/g, "'\\''")}'::jsonb,
+      body := '${body.replace(/'/g, "'\\''")}'::jsonb,
       timeout_milliseconds := 30000
     );
   $cron$
-);
-`;
-}
-
-function sqlLiteral(value: string) {
-  return `'${value.replace(/'/g, "''")}'`;
+);`;
 }

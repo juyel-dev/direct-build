@@ -55,10 +55,12 @@ export async function getProject(pat: string, ref: string): Promise<ProjectInfo>
   return call<ProjectInfo>(pat, `/v1/projects/${ref}`);
 }
 
-export async function runSql(pat: string, ref: string, query: string): Promise<unknown> {
+export async function runSql(pat: string, ref: string, query: string, params?: unknown[]): Promise<unknown> {
+  const body: Record<string, unknown> = { query };
+  if (params && params.length > 0) body.params = params;
   return call(pat, `/v1/projects/${ref}/database/query`, {
     method: "POST",
-    body: JSON.stringify({ query }),
+    body: JSON.stringify(body),
   });
 }
 

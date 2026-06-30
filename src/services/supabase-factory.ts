@@ -1,10 +1,9 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { getSessionPassphrase, loadSecrets } from "./config-store";
-import { AppError } from "../errors";
+import { getSessionPassphrase, loadSecrets, hasStoredSecrets } from "../lib/config-store";
 
 let cached: { url: string; key: string; client: SupabaseClient } | null = null;
 
-export async function getUserSupabase(): Promise<SupabaseClient | null> {
+export async function createUserClient(): Promise<SupabaseClient | null> {
   const pass = getSessionPassphrase();
   if (!pass) return null;
   const secrets = await loadSecrets(pass);
@@ -19,6 +18,10 @@ export async function getUserSupabase(): Promise<SupabaseClient | null> {
   return client;
 }
 
-export function invalidateUserSupabase() {
+export function invalidateClient() {
   cached = null;
+}
+
+export function isClientReady(): boolean {
+  return !!getSessionPassphrase() && hasStoredSecrets();
 }

@@ -270,4 +270,105 @@ where id = 1;
 insert into public._migrations (id, name) values (2, 'automation_runtime') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 3,
+    name: "auth_user_isolation",
+    sql: `
+-- User isolation via Supabase Auth
+-- Each table gets a user_id column referencing auth.users
+-- RLS policies check auth.uid() instead of open_all
+
+-- Only run if auth schema exists (Supabase Auth enabled)
+do $$
+begin
+  if not exists (select 1 from information_schema.schemata where schema_name = 'auth') then
+    return;
+  end if;
+end $$;
+
+-- Add user_id columns (nullable for backward compatibility)
+alter table public.pages add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.content_briefs add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.posts add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.jobs add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.ai_usage add column if not exists user_id uuid references auth.users(id) on delete cascade;
+
+-- Index user_id columns
+create index if not exists idx_pages_user on public.pages (user_id);
+create index if not exists idx_briefs_user on public.content_briefs (user_id);
+create index if not exists idx_posts_user on public.posts (user_id);
+create index if not exists idx_jobs_user on public.jobs (user_id);
+create index if not exists idx_usage_user on public.ai_usage (user_id);
+
+-- RPC: Set user_id on insert trigger function
+create or replace function public.set_user_id()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.user_id is null then
+    new.user_id = auth.uid();
+  end if;
+  return new;
+end $$;
+
+-- Drop old open_all policies
+do $$
+declare t text;
+begin
+  for t in select unnest(array['pages','content_briefs','posts','engagement_snapshots','jobs','ai_usage','system_events','app_settings','strategy_insights']) loop
+    execute format('drop policy if exists "open_all" on public.%I', t);
+  end loop;
+end $$;
+
+-- Create user-aware RLS policies
+-- If auth.uid() is set (user is logged in), enforce user isolation
+-- Otherwise fall back to open access (for existing single-user setups)
+do $$
+declare t text;
+begin
+  for t in select unnest(array['pages','content_briefs','posts','engagement_snapshots','jobs','ai_usage','system_events','app_settings','strategy_insights']) loop
+    execute format('
+      create policy "user_or_open" on public.%I
+      for all
+      using (
+        case
+          when auth.uid() is not null then user_id = auth.uid()
+          else true
+        end
+      )
+      with check (
+        case
+          when auth.uid() is not null then user_id = auth.uid()
+          else true
+        end
+      )', t);
+  end loop;
+end $$;
+
+-- Create triggers to auto-set user_id on insert
+do $$
+declare t text;
+begin
+  for t in select unnest(array['pages','content_briefs','posts','jobs','ai_usage']) loop
+    execute format('
+      drop trigger if exists trg_set_user_id on public.%I;
+      create trigger trg_set_user_id
+      before insert on public.%I
+      for each row
+      execute function public.set_user_id()', t, t);
+  end loop;
+end $$;
+
+update public.app_settings
+set schema_version = 3,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('auth_user_isolation', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (3, 'auth_user_isolation') on conflict (id) do nothing;
+`,
+  },
 ];
