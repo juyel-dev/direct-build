@@ -1,5 +1,5 @@
 import { BaseRepository } from "./base";
-import type { Brief, BriefStatus } from "../types";
+import type { Brief } from "../types";
 
 export class BriefRepository extends BaseRepository {
   async findNext(pageId: string, limit = 5): Promise<Brief[]> {

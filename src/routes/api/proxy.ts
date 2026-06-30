@@ -116,7 +116,7 @@ export const Route = createFileRoute("/api/proxy")({
         const ip = getClientIp(request);
 
         /* Rate limit check */
-        const { allowed, remaining } = checkRateLimit(ip);
+        const { allowed } = checkRateLimit(ip);
         if (!allowed) {
           log.warn("Rate limit exceeded", { ip });
           return json({ error: "Too many requests. Try again later." }, 429);

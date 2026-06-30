@@ -1,9 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  loadSecrets,
-  saveSecrets,
-  SecretsSchema,
-  hasStoredSecrets,
   getSessionPassphrase,
   setSessionPassphrase,
   type Secrets,
@@ -12,7 +8,7 @@ import { GlassInput } from "@/components/glass/GlassInput";
 import { SecretInput } from "@/components/glass/SecretInput";
 import { BottomSheet } from "@/components/glass/BottomSheet";
 import { testSupabaseRest, testSupabaseServiceRole, testManagementApi } from "@/lib/test-connections";
-import { invalidateUserSupabase } from "@/lib/user-supabase";
+
 import { classifySupabaseKey } from "@/lib/supabase-keys";
 import { projectRefFromUrl } from "@/lib/config-store";
 import { ExclamationTriangleIcon, ArrowTopRightOnSquareIcon } from "@heroicons/react/24/outline";

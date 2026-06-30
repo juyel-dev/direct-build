@@ -3,7 +3,6 @@ import {
   type Secrets,
   type Providers,
   type Brand,
-  loadInstallStatus,
 } from "@/lib/config-store";
 import { GlassCard } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";

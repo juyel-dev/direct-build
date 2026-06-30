@@ -1,8 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/AppShell";
-import { GlassCard, GlassPanel } from "@/components/glass/GlassCard";
+import { GlassCard } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
-import { GlassInput } from "@/components/glass/GlassInput";
 import { FacebookPreview } from "@/components/facebook/FacebookPreview";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useMemo, useState, useCallback, useEffect, memo } from "react";

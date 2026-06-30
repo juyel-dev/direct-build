@@ -36,6 +36,22 @@ type Job = {
 
 const GRAPH_VERSION = "v21.0";
 const WORKER_NAME = "aurora-worker";
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const CIRCUIT_COOLDOWN_MS = 300_000;
+const CIRCUIT_THRESHOLD = 3;
+
+const requestId = crypto.randomUUID().slice(0, 8);
+
+function log(level: string, message: string, data: Record<string, unknown> = {}) {
+  console.log(JSON.stringify({
+    t: new Date().toISOString(),
+    l: level,
+    w: WORKER_NAME,
+    rid: requestId,
+    msg: message,
+    ...data,
+  }));
+}
 
 async function fetchWithTimeout(
   url: string,
@@ -75,6 +91,7 @@ Deno.serve(async (request) => {
   }
 
   const startedAt = Date.now();
+  log("info", "Worker invocation started");
   try {
     const pages = await loadActivePages();
     await seedRecurringJobs(pages);
@@ -83,17 +100,19 @@ Deno.serve(async (request) => {
     for (const job of jobs) {
       results.push(await processJob(job, pages));
     }
+    const elapsed = Date.now() - startedAt;
+    log("info", "Worker invocation completed", { claimed: jobs.length, elapsed_ms: elapsed });
     return json({
       ok: true,
       claimed: jobs.length,
       results,
-      elapsed_ms: Date.now() - startedAt,
+      elapsed_ms: elapsed,
     });
   } catch (error) {
-    await event("error", "worker", messageOf(error), {
-      stack: error instanceof Error ? error.stack : null,
-    });
-    return json({ error: messageOf(error) }, 500);
+    const msg = messageOf(error);
+    log("error", "Worker invocation failed", { error: msg });
+    await event("error", "worker", msg, { stack: error instanceof Error ? error.stack : null });
+    return json({ error: msg }, 500);
   }
 });
 
@@ -107,6 +126,52 @@ async function loadActivePages(): Promise<Page[]> {
   if (error) throw error;
   return (data ?? []) as Page[];
 }
+
+/* ─── Heartbeat ────────────────────────────────────────────── */
+
+async function heartbeat(jobId: string) {
+  const { error } = await supabase
+    .from("jobs")
+    .update({ lease_expires_at: new Date(Date.now() + 120_000).toISOString() })
+    .eq("id", jobId)
+    .eq("status", "processing");
+  if (error) log("warn", "Heartbeat failed", { job_id: jobId, error: messageOf(error) });
+}
+
+/* ─── Circuit breaker ──────────────────────────────────────── */
+
+async function isProviderAvailable(provider: string): Promise<boolean> {
+  const since = new Date(Date.now() - CIRCUIT_COOLDOWN_MS).toISOString();
+  const { data, error } = await supabase
+    .from("system_events")
+    .select("id")
+    .eq("category", `circuit_${provider}`)
+    .eq("severity", "error")
+    .gte("created_at", since)
+    .limit(CIRCUIT_THRESHOLD);
+  if (error) {
+    log("warn", "Circuit check query failed", { provider, error: messageOf(error) });
+    return true;
+  }
+  const recent = (data ?? []).length;
+  if (recent >= CIRCUIT_THRESHOLD) {
+    log("warn", "Circuit open — provider in cooldown", { provider, recent_failures: recent });
+    return false;
+  }
+  return true;
+}
+
+async function recordProviderFailure(provider: string, detail: string) {
+  log("warn", "Provider failure recorded", { provider, detail });
+  await supabase.from("system_events").insert({
+    severity: "error",
+    category: `circuit_${provider}`,
+    message: detail.slice(0, 500),
+    metadata: { provider },
+  });
+}
+
+/* ─── Job processing ────────────────────────────────────────── */
 
 async function seedRecurringJobs(pages: Page[]) {
   const now = new Date();
@@ -136,13 +201,18 @@ async function enqueue(
     },
     { onConflict: "idempotency_key", ignoreDuplicates: true },
   );
-  if (error) throw error;
+  if (error) {
+    log("error", "Enqueue failed", { kind, page_id: pageId, error: messageOf(error) });
+    throw error;
+  }
 }
 
 async function claimJobs(): Promise<Job[]> {
   const { data, error } = await supabase.rpc("claim_jobs", { _limit: 10, _worker: WORKER_NAME });
   if (error) throw error;
-  return (data ?? []) as Job[];
+  const jobs = (data ?? []) as Job[];
+  if (jobs.length > 0) log("info", "Jobs claimed", { count: jobs.length });
+  return jobs;
 }
 
 async function processJob(job: Job, pages: Page[]) {
@@ -151,6 +221,12 @@ async function processJob(job: Job, pages: Page[]) {
     await completeJob(job, "succeeded", "Page is no longer active.");
     return { id: job.id, kind: job.kind, ok: true, skipped: true };
   }
+
+  log("info", "Processing job", { job_id: job.id, kind: job.kind, page_id: page.id });
+
+  const heartbeatTimer = setInterval(() => {
+    heartbeat(job.id).catch((e) => log("warn", "Heartbeat error", { error: messageOf(e) }));
+  }, HEARTBEAT_INTERVAL_MS);
 
   try {
     let detail = "";
@@ -162,12 +238,19 @@ async function processJob(job: Job, pages: Page[]) {
     else if (job.kind === "compute_strategy")
       detail = await computeStrategy(page, Number(job.payload.window_days ?? 30));
     else detail = `Unknown job kind "${job.kind}" skipped.`;
+    clearInterval(heartbeatTimer);
     await completeJob(job, "succeeded", detail);
+    log("info", "Job completed", { job_id: job.id, kind: job.kind, detail });
     return { id: job.id, kind: job.kind, ok: true, detail };
   } catch (error) {
+    clearInterval(heartbeatTimer);
     const terminal = job.attempts >= job.max_attempts;
-    await completeJob(job, terminal ? "failed_terminal" : "failed_retryable", messageOf(error));
-    return { id: job.id, kind: job.kind, ok: false, error: messageOf(error) };
+    const detail = messageOf(error);
+    await completeJob(job, terminal ? "failed_terminal" : "failed_retryable", detail);
+    log("warn", terminal ? "Job failed terminal" : "Job failed retryable", {
+      job_id: job.id, kind: job.kind, attempts: job.attempts, error: detail,
+    });
+    return { id: job.id, kind: job.kind, ok: false, error: detail };
   }
 }
 
@@ -218,6 +301,8 @@ async function planContent(page: Page, horizonDays: number) {
 }
 
 async function generateBriefIdeas(page: Page, slots: Date[]) {
+  if (!await isProviderAvailable("llm")) return [];
+
   const aiKey = Deno.env.get("FBAI_AI_API_KEY");
   const provider = Deno.env.get("FBAI_LLM_PROVIDER") ?? "openrouter";
   const model = Deno.env.get("FBAI_LLM_MODEL") ?? "meta-llama/llama-3.3-70b-instruct:free";
@@ -258,7 +343,10 @@ async function generateBriefIdeas(page: Page, slots: Date[]) {
   });
   const body = await response.text();
   await logUsage(page.id, null, provider, model);
-  if (!response.ok) throw new Error(`LLM ${response.status}: ${body.slice(0, 240)}`);
+  if (!response.ok) {
+    await recordProviderFailure("llm", `LLM ${response.status}: ${body.slice(0, 240)}`);
+    throw new Error(`LLM ${response.status}: ${body.slice(0, 240)}`);
+  }
 
   const parsed = JSON.parse(extractJson(body));
   const content = parsed.choices?.[0]?.message?.content;
@@ -297,6 +385,7 @@ async function maybeGenerateImageUrl(prompt: string): Promise<string | null> {
     return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?model=${encodeURIComponent(model)}&nologo=true`;
   }
   if (provider === "openai_dalle" && Deno.env.get("FBAI_IMAGE_API_KEY")) {
+    if (!await isProviderAvailable("image")) return null;
     const response = await fetchWithTimeout("https://api.openai.com/v1/images/generations", {
       method: "POST",
       timeout: 20_000,
@@ -307,8 +396,10 @@ async function maybeGenerateImageUrl(prompt: string): Promise<string | null> {
       body: JSON.stringify({ model, prompt, size: "1024x1024", n: 1 }),
     });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(`Image API ${response.status}: ${JSON.stringify(body).slice(0, 200)}`);
+    if (!response.ok) {
+      await recordProviderFailure("image", `Image API ${response.status}: ${JSON.stringify(body).slice(0, 200)}`);
+      return null;
+    }
     return body.data?.[0]?.url ?? null;
   }
   return null;
@@ -316,6 +407,8 @@ async function maybeGenerateImageUrl(prompt: string): Promise<string | null> {
 
 async function publishDuePosts(page: Page) {
   if (!page.fb_page_id) return "Skipped — Facebook page id missing.";
+  if (!await isProviderAvailable("facebook")) return "Skipped — Facebook API in cooldown.";
+
   const token = Deno.env.get("FBAI_FB_PAGE_TOKEN");
   if (!token) return "Skipped — Facebook page token missing.";
 
@@ -395,6 +488,7 @@ async function publishBrief(page: Page, brief: Brief, token: string) {
   const result = await response.json().catch(() => ({}));
   if (!response.ok || result.error) {
     const errorText = result.error?.message ?? JSON.stringify(result).slice(0, 200);
+    await recordProviderFailure("facebook", `Publish ${response.status}: ${errorText}`);
     await supabase
       .from("posts")
       .update({ status: "failed", last_error: errorText })
@@ -427,6 +521,8 @@ async function publishBrief(page: Page, brief: Brief, token: string) {
 async function captureEngagement(page: Page, windowDays: number) {
   const token = Deno.env.get("FBAI_FB_PAGE_TOKEN");
   if (!token) return "Skipped — Facebook page token missing.";
+  if (!await isProviderAvailable("facebook")) return "Skipped — Facebook API in cooldown.";
+
   const since = new Date(Date.now() - windowDays * 86400_000).toISOString();
   const { data, error } = await supabase
     .from("posts")
@@ -440,6 +536,7 @@ async function captureEngagement(page: Page, windowDays: number) {
   let captured = 0;
   for (const post of (data ?? []) as { id: string; fb_post_id: string }[]) {
     const metrics = await fetchFacebookMetrics(post.fb_post_id, token);
+    if (!metrics) continue;
     await supabase.from("engagement_snapshots").insert({
       post_id: post.id,
       likes: metrics.likes,
@@ -455,6 +552,7 @@ async function captureEngagement(page: Page, windowDays: number) {
 }
 
 async function fetchFacebookMetrics(fbPostId: string, token: string) {
+  if (!await isProviderAvailable("facebook")) return null;
   const fields =
     "shares,comments.summary(true),reactions.summary(true),insights.metric(post_impressions,post_impressions_unique)";
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(fbPostId)}?fields=${encodeURIComponent(fields)}`;
@@ -463,8 +561,11 @@ async function fetchFacebookMetrics(fbPostId: string, token: string) {
     headers: { authorization: `Bearer ${token}` },
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok || body.error)
-    throw new Error(body.error?.message ?? `Graph API ${response.status}`);
+  if (!response.ok || body.error) {
+    const errMsg = body.error?.message ?? `Graph API ${response.status}`;
+    await recordProviderFailure("facebook", errMsg);
+    return null;
+  }
   const insightValues = new Map<string, number>();
   for (const item of body.insights?.data ?? []) {
     insightValues.set(item.name, Number(item.values?.[0]?.value ?? 0));

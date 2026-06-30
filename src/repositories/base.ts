@@ -59,7 +59,6 @@ export abstract class BaseRepository {
     if (error) this.handleError(error, "paginatedQuery.data");
 
     const typedData = (data ?? []) as T[];
-    const limit = options?.limit ?? 20;
     return {
       data: typedData,
       total: count,

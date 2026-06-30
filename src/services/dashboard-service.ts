@@ -8,7 +8,6 @@ import { BaseService } from "./base";
 import type { DashboardBrief, DashboardStats } from "../hooks/useAuroraQuery";
 
 export class DashboardService extends BaseService {
-  private readonly _client: SupabaseClient;
   private pages: PageRepository;
   private briefs: BriefRepository;
   private posts: PostRepository;
@@ -17,7 +16,6 @@ export class DashboardService extends BaseService {
 
   constructor(client: SupabaseClient) {
     super("DashboardService");
-    this._client = client;
     this.pages = new PageRepository(client);
     this.briefs = new BriefRepository(client);
     this.posts = new PostRepository(client);

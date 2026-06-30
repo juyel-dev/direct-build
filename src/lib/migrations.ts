@@ -389,4 +389,44 @@ where id = 1;
 insert into public._migrations (id, name) values (3, 'auth_user_isolation') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 5,
+    name: "worker_reliability",
+    sql: `
+-- Circuit breaker support: index system_events for fast provider cooldown queries
+create index if not exists idx_events_circuit
+  on public.system_events (category, created_at desc)
+  where severity = 'error';
+
+-- Auth finalization: safe NOT NULL for user_id columns (no-op if existing data has nulls)
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'pages' and column_name = 'user_id') then
+    if not exists (select 1 from public.pages where user_id is null limit 1) then
+      alter table public.pages alter column user_id set not null;
+    end if;
+    if not exists (select 1 from public.content_briefs where user_id is null limit 1) then
+      alter table public.content_briefs alter column user_id set not null;
+    end if;
+    if not exists (select 1 from public.posts where user_id is null limit 1) then
+      alter table public.posts alter column user_id set not null;
+    end if;
+    if not exists (select 1 from public.jobs where user_id is null limit 1) then
+      alter table public.jobs alter column user_id set not null;
+    end if;
+    if not exists (select 1 from public.ai_usage where user_id is null limit 1) then
+      alter table public.ai_usage alter column user_id set not null;
+    end if;
+  end if;
+end $$;
+
+update public.app_settings
+set schema_version = 5,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('worker_reliability', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (5, 'worker_reliability') on conflict (id) do nothing;
+`,
+  },
 ];

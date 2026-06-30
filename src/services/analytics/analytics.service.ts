@@ -12,7 +12,6 @@ export type TopPost = { topic: string; url: string | null; score: number };
 export type CostByProvider = { name: string; value: number };
 
 export class AnalyticsService extends BaseService {
-  private readonly _client: SupabaseClient;
   private engagements: EngagementRepository;
   private posts: PostRepository;
   private usage: UsageRepository;
@@ -20,7 +19,6 @@ export class AnalyticsService extends BaseService {
 
   constructor(client: SupabaseClient) {
     super("AnalyticsService");
-    this._client = client;
     this.engagements = new EngagementRepository(client);
     this.posts = new PostRepository(client);
     this.usage = new UsageRepository(client);

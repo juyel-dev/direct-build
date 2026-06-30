@@ -1,6 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { getSessionPassphrase, loadSecrets } from "./config-store";
-import { AppError } from "../errors";
 
 let cached: { url: string; key: string; client: SupabaseClient } | null = null;
 

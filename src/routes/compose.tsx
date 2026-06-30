@@ -14,7 +14,7 @@ import {
   CalendarDaysIcon,
   ArrowPathIcon,
 } from "@heroicons/react/24/outline";
-import { toast } from "sonner";
+
 
 export const Route = createFileRoute("/compose")({
   head: () => ({
@@ -103,7 +103,7 @@ function ComposePage() {
         </GlassCard>
       )}
 
-      <form onSubmit={handleSubmit((data) => saveBrief("approved", false))} className="grid gap-6 lg:grid-cols-5">
+      <form onSubmit={handleSubmit(() => saveBrief("approved", false))} className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-3 space-y-5">
           <GlassCard className="p-5">
             <GlassLabel hint="What is this post about?" htmlFor="topic">Topic</GlassLabel>

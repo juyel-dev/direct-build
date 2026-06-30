@@ -6,7 +6,7 @@ import { BottomSheet } from "@/components/glass/BottomSheet";
 import { FacebookPreview } from "@/components/facebook/FacebookPreview";
 import { useMemo } from "react";
 import { loadInstallStatus, getSessionPassphrase } from "@/lib/config-store";
-import { useSchedule, type ViewMode } from "@/hooks/useSchedule";
+import { useSchedule } from "@/hooks/useSchedule";
 import { format } from "date-fns";
 import {
   PlusIcon,

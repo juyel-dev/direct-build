@@ -1,6 +1,5 @@
 import { proxyFetch } from "../../lib/proxy-fetch";
 import { BaseService } from "../base";
-import { logger } from "../../logger";
 import { ExternalServiceError } from "../../errors";
 
 export type LlmConfig = {

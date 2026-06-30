@@ -151,6 +151,19 @@ Browser localStorage (encrypted credentials)
 | Testing | Vitest infrastructure | `vitest.config.ts`, 4 test files, 33 tests covering errors, validators, logger, repository pagination |
 | Validation | Missing schemas added | `PostSchema`, `EngagementSnapshotSchema`, `WorkerStatusSchema`, defaults for `ProvidersSchema` |
 
+### Phase 3.5 ✅ — Production Hardening
+
+| Area | Change | Details |
+|------|--------|---------|
+| Worker reliability | Heartbeat/lease renewal | `setInterval` updates `lease_expires_at` every 30s during long tasks (`planContent`, `publishDuePosts`, etc.) |
+| Worker reliability | Circuit breaker | `isProviderAvailable()` queries `system_events` for `CIRCUIT_THRESHOLD` (3) failures in `CIRCUIT_COOLDOWN_MS` (5 min) per provider; `recordProviderFailure()` inserts on error |
+| Worker reliability | Structured logging | JSON stdout: `{t, l, w, rid, msg, ...}` with per-invocation `requestId` for Supabase Logs correlation |
+| Worker reliability | Job completion metadata | `completed_at`, `lease_expires_at` cleanup, exponential backoff retry (`2^attempts` min, capped at 60) |
+| Database | Migration 5 | Index on `system_events(category, created_at desc)` for circuit breaker queries; safe NOT NULL on `user_id` columns (no-op if existing nulls); schema version bump |
+| TypeScript strict mode | `noUnusedLocals`, `noUnusedParameters` | Enabled — 22 violations fixed across 17 files (removed dead imports, unused params, unused `_client` fields) |
+| Auth finalization | Migration 5 defaults | `user_id NOT NULL` enforced when no existing nulls; Migration 3's user-isolation is now the default path |
+| Cleanup | Dead imports removed | `logger` from setup-runner/ai.service; `AppError` from user-supabase; `subDays` from useAuroraQuery; `loadInstallStatus` from SetupCard/useCompose; `GlassPanel`/`GlassInput` from drafts; `ViewMode` from schedule; `isSameDay` from schedule.service; `toast` from compose |
+
 ---
 
 ## File Manifest (All Source Files)
@@ -227,6 +240,11 @@ vitest.config.ts                             # Vitest configuration
 | Worker timeout | ADDED — AbortController timeouts on all external fetch() calls |
 | Worker duplicate publish | FIXED — atomic brief-level lock before publishing |
 | Worker secrets | GOOD — all from env vars via requiredEnv() helper |
+| Worker heartbeat | ADDED — lease renewal every 30s during long tasks |
+| Worker circuit breaker | ADDED — per-provider cooldown after 3 failures in 5 min |
+| Worker logging | ADDED — structured JSON stdout with correlation IDs |
+| TypeScript strict mode | ENABLED — `strict: true`, `noUnusedLocals`, `noUnusedParameters` |
+| Auth isolation default | SET — Migration 5 enables user isolation by default (safe NOT NULL) |
 
 ---
 
@@ -234,10 +252,14 @@ vitest.config.ts                             # Vitest configuration
 
 | Risk | Severity | Recommendation |
 |------|----------|---------------|
-| Worker: no lease renewal | LOW | Add heartbeat/lease renewal during long-running job processing |
-| Worker: no circuit breaker | LOW | Add simple circuit breaker for Facebook/LLM API failures |
-| Worker: no stdout logging | LOW | Add `console.log(JSON.stringify({...}))` for Supabase Logs dashboard |
-| No TypeScript strict mode | LOW | Enable `noUnusedLocals`, `noUnusedParameters` |
+| Service role in browser | HIGH | Create edge function for privileged ops; remove service_role from client bundle — **Phase 3: DONE** via `manage-setup` |
+| No rate limiting on proxy | MEDIUM | Add `@upstash/rate-limit` or in-memory limiter to `/api/proxy` — **Phase 3: DONE** (in-memory per-IP sliding window, 120/min) |
+| useAuroraQuery still uses direct repos | MEDIUM | Draft operations and schedule queries still bypass service layer — extract to DraftService — **Phase 3: DONE** |
+| Large bundle size | MEDIUM | Route-based lazy loading; tree-shake unused Radix UI; review GlassCard and analytics bundles — **Phase 3: DONE** (React.lazy for analytics) |
+| Image optimization | LOW | Add WebP/AVIF pipeline for uploaded images |
+| API key rotation | LOW | No built-in mechanism to rotate or revoke stored API keys |
+| Worker cold starts | LOW | Deno Edge Function cold start can delay job processing by 1–2s |
+| No health endpoint | LOW | No `/health` or `/ready` endpoint for monitoring uptime |
 | lint timeout | INFO | ESLint configuration may have performance issues on Windows |
 
 ---
@@ -260,20 +282,37 @@ vitest.config.ts                             # Vitest configuration
 
 ### Priority Order
 
-1. **Worker Resilience**
-   - Add heartbeat/lease renewal during long LLM calls
-   - Add per-call retries (2 attempts with 1s/2s backoff) for transient API failures
-   - Add simple circuit breaker for Facebook/LLM API errors
-   - Add stdout JSON logging for Supabase Logs dashboard
-
-2. **TypeScript Strict Mode**
-   - Enable `noUnusedLocals`, `noUnusedParameters`, `strict` in tsconfig
-   - Fix any resulting errors
-
-3. **Multi-Platform Prep**
-   - Create Platform abstraction interfaces
-   - Instagram Graph API integration
+1. **Multi-Platform Expansion**
+   - Create Platform abstraction interfaces (`src/platforms/`)
+   - Instagram Graph API integration (Facebook shared inbox)
    - LinkedIn API integration
+   - TikTok API integration
+   - Unify posting window config across platforms
+
+2. **Observability & Monitoring**
+   - Add `/health` and `/ready` endpoints
+   - Build simple admin dashboard for worker stats (jobs processed, failures, retries)
+   - Add Prometheus-compatible metrics endpoint for Vercel
+
+3. **API Key Management**
+   - Add API key rotation workflow in Settings UI
+   - Add expiration dates for stored credentials
+   - Add key validation on save (test connection before storing)
+
+4. **Image Optimization Pipeline**
+   - Add WebP/AVIF conversion on upload
+   - Add responsive srcset generation
+   - Add CDN caching with signed URLs
+
+5. **Collaboration Features**
+   - Team member invitations via Supabase Auth
+   - Role-based access (admin, editor, viewer)
+   - Activity audit log
+
+6. **Rate Limiting Refinements**
+   - Migrate from in-memory to persisted rate limits (Supabase or Upstash)
+   - Add per-user rate limits vs. per-IP
+   - Add rate limit headers in responses
 
 4. **Image Pipeline Enhancement**
    - WebP/AVIF server-side conversion on uploaded images

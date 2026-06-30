@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { createUserClient } from "../services/supabase-factory";
 import { PublishingService } from "../services/publishing/publishing.service";
 import { AiService } from "../services/ai/ai.service";
-import { loadBrand, loadProviders, loadInstallStatus, getSessionPassphrase, hasStoredSecrets, loadSecrets } from "../lib/config-store";
+import { loadBrand, loadProviders, getSessionPassphrase, loadSecrets } from "../lib/config-store";
 import { buildLlmConfig } from "../services/ai/providers/llm-providers";
 
 const ComposeSchema = z.object({
