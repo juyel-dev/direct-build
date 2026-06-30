@@ -271,6 +271,24 @@ insert into public._migrations (id, name) values (2, 'automation_runtime') on co
 `,
   },
   {
+    id: 4,
+    name: "performance_indexes",
+    sql: `
+-- Performance indexes for common query patterns
+create index if not exists idx_briefs_status on public.content_briefs (status) where status in ('draft','approved','scheduled');
+create index if not exists idx_briefs_slot_start on public.content_briefs (slot_start desc);
+create index if not exists idx_posts_status on public.posts (status) where status in ('pending','published');
+create index if not exists idx_posts_idempotency on public.posts (idempotency_key);
+create index if not exists idx_snap_captured_at on public.engagement_snapshots (captured_at desc);
+create index if not exists idx_snap_captured_at_post on public.engagement_snapshots (post_id, captured_at desc);
+create index if not exists idx_jobs_idempotency on public.jobs (idempotency_key) where idempotency_key is not null;
+create index if not exists idx_usage_called_at on public.ai_usage (called_at desc);
+
+update public.app_settings set schema_version = 4, updated_at = now() where id = 1;
+insert into public._migrations (id, name) values (4, 'performance_indexes') on conflict (id) do nothing;
+`,
+  },
+  {
     id: 3,
     name: "auth_user_isolation",
     sql: `

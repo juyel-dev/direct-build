@@ -120,6 +120,19 @@ Browser localStorage (encrypted credentials)
 | README update | Development guide, migration guide, roadmap |
 | TypeScript | Zero errors (`bun run tsc --noEmit`) |
 
+### Phase 3 ✅ — Production Hardening & Performance Upgrade
+
+| Priority | Change | Details |
+|----------|--------|---------|
+| HIGH | Service role removal from browser | Created `supabase/functions/manage-setup/index.ts` — edge function with `SUPABASE_SERVICE_ROLE_KEY` from env handles bucket creation/list/verify ops. Browser sends only PAT (already in browser). `setup-runner.ts` reordered: push secrets → deploy edge function → create bucket via edge function. `manage-setup-client.ts` helper created. |
+| HIGH | Secure API proxy | `proxy.ts` rewritten with: in-memory per-IP sliding-window rate limiting (120/min), Zod request validation (ProxyRequestSchema.strict()), SSRF protection (private IP/localhost blocklist), response size cap (10MB), structured logging via `createLogger("api/proxy")`, enforce HTTPS for non-supabase.co targets, expanded allowlist documentation. |
+| HIGH | Layer consistency | Created `DraftService` (`src/services/draft/draft.service.ts`) — wraps `BriefRepository` for all draft ops (approve, reject, bulk). Updated `ScheduleService` with `findScheduleData()` and `findActivePageId()` methods (client param optional for pure logic). Rewrote `useAuroraQuery.ts` to delegate all data access through `DashboardService`, `AnalyticsService`, `DraftService`, `ScheduleService`. No direct repository calls from hooks. |
+| MEDIUM | Bundle optimization | `React.lazy` + `Suspense` for analytics charts (`LazyCharts` → lazy-imports `AnalyticsChartsInner` with recharts). ~300KB recharts deferred from initial bundle. QueryClient configured with `staleTime: 30s`, `gcTime: 5min`, `retry: 1`, `refetchOnWindowFocus: false`. |
+| MEDIUM | Image optimization | Created `OptimizedImage` component with lazy loading, async decoding, fade-in, and shimmer placeholder. |
+| MEDIUM | Database performance | Migration 4: 7 new indexes for content_briefs (status, slot_start), posts (status, idempotency_key), engagement_snapshots (captured_at), jobs (idempotency_key), ai_usage (called_at). |
+| MEDIUM | Frontend rendering | `React.memo` on `DraftCard` component to prevent re-renders when search/bulk-selection changes. |
+| MEDIUM | Testing expansion | 51 tests (from 33): added `ScheduleService` tests (7 tests for generateWeekDays/nextSuggestedSlot), `ProxyRequestSchema` validation tests (11 tests for schema + host allowlist logic). |
+
 ### Phase 2.5 ✅ — Stabilization Before Scaling
 
 | Area | Change | Details |
@@ -166,18 +179,30 @@ src/
  │   │   ├── ai.service.ts                   # AI text/image generation
  │   │   └── providers/llm-providers.ts      # Provider base URLs
  │   ├── publishing/publishing.service.ts    # Draft + publish ops (uses BriefRepository)
- │   ├── schedule/schedule.service.ts        # Calendar logic
- │   └── analytics/analytics.service.ts      # Analytics (uses BriefRepository)
+ │   ├── schedule/schedule.service.ts        # Calendar logic + schedule data queries
+ │   ├── analytics/analytics.service.ts      # Analytics (uses BriefRepository)
+ │   └── draft/draft.service.ts              # Draft CRUD (approve/reject/bulk)
  ├── hooks/
  │   ├── useAuth.ts                          # Auth state hook
  │   ├── useRealtime.ts                      # Realtime subscriptions (via createUserClient)
  │   ├── useCompose.ts                       # Compose hook (extracted)
  │   ├── useSchedule.ts                      # Schedule hook + quickTimeAdjust
- │   └── useAuroraQuery.ts                   # Data queries (delegates to services)
- ├── components/                              # UI components
+ │   └── useAuroraQuery.ts                   # Data queries (delegates to services ONLY)
+ ├── components/
+ │   ├── OptimizedImage.tsx                  # Lazy, fade-in, shimmer placeholder
+ │   └── charts/
+ │       ├── LazyCharts.tsx                  # React.lazy wrapper for analytics charts
+ │       └── AnalyticsChartsInner.tsx        # Actual recharts components (lazy loaded)
  ├── features/                                # Feature components
  ├── routes/                                  # TanStack Router (thin UI only)
- └── lib/                                     # Legacy modules (config-store, crypto, etc.)
+ └── lib/                                     # Legacy + helper modules
+     ├── config-store.ts                     # Encrypted credential store
+     ├── crypto.ts                           # AES-GCM browser crypto
+     ├── edge-functions.ts                   # Edge function bundles (worker + manage-setup)
+     └── manage-setup-client.ts              # Client for manage-setup edge function
+supabase/functions/
+ ├── aurora-worker/index.ts                  # Background planner/publisher/analytics
+ └── manage-setup/index.ts                   # Secure setup ops (bucket mgmt, verif)
 ARCHITECTURE.md                              # Architecture docs
 AI_CONTEXT.md                                # This file
 vitest.config.ts                             # Vitest configuration
@@ -191,9 +216,10 @@ vitest.config.ts                             # Vitest configuration
 |---------|--------|
 | Credential storage | AES-GCM encrypted, passphrase in sessionStorage |
 | SQL injection | FIXED — parameterized queries everywhere |
-| Service role exposure | Encrypted in browser, used only during setup |
+| Service role exposure | **FIXED** — Browser no longer uses service_role for ops; `manage-setup` edge function handles bucket ops with `SUPABASE_SERVICE_ROLE_KEY` from env. Service role still encrypted in localStorage for backward compat but never used at runtime. |
 | Facebook token leakage | FIXED — Authorization header (client + worker), no URL params |
 | PAT exposure | Acceptable (BYOB model, user's own token) |
+| API proxy security | **ADDED** — Rate limiting (120/min per IP), Zod validation, SSRF protection, response size cap (10MB), logging, HTTPS enforcement |
 | CSP headers | ADDED — script-src, connect-src, etc. hardened |
 | XSS protection | Security headers on all responses |
 | Auth isolation | Migration 3 available (optional, backward-compatible) |
@@ -208,14 +234,9 @@ vitest.config.ts                             # Vitest configuration
 
 | Risk | Severity | Recommendation |
 |------|----------|---------------|
-| Service role in browser | HIGH | Create edge function for privileged ops; remove service_role from client bundle |
-| No rate limiting on proxy | MEDIUM | Add `@upstash/rate-limit` or in-memory limiter to `/api/proxy` |
-| useAuroraQuery still uses direct repos | MEDIUM | Draft operations and schedule queries still bypass service layer — extract to DraftService |
-| Large bundle size | MEDIUM | Route-based lazy loading; tree-shake unused Radix UI; review GlassCard (353kB) and analytics (425kB) |
 | Worker: no lease renewal | LOW | Add heartbeat/lease renewal during long-running job processing |
 | Worker: no circuit breaker | LOW | Add simple circuit breaker for Facebook/LLM API failures |
 | Worker: no stdout logging | LOW | Add `console.log(JSON.stringify({...}))` for Supabase Logs dashboard |
-| Image optimization | LOW | Add WebP/AVIF pipeline for uploaded images |
 | No TypeScript strict mode | LOW | Enable `noUnusedLocals`, `noUnusedParameters` |
 | lint timeout | INFO | ESLint configuration may have performance issues on Windows |
 
@@ -235,41 +256,38 @@ vitest.config.ts                             # Vitest configuration
 
 ---
 
-## Recommended Next Tasks (Phase 3)
+## Recommended Next Tasks (Phase 4)
 
 ### Priority Order
 
-1. **Performance Optimization**
-   - Route-based lazy loading (TanStack Router auto-splits by route files)
-   - Tree-shake unused shadcn/ui components in `src/components/ui/`
-   - Image optimization (auto WebP, responsive srcset)
-   - Database query profiling (add EXPLAIN ANALYZE to hot queries)
-   - Review `GlassCard-CekHaKUg.js` (353kB!) and `analytics-Dt4h6EJO.js` (425kB)
-
-2. **DraftService extraction**
-   - Create `src/services/draft/draft.service.ts` 
-   - Move draft mutations (approve, reject, bulk) from `useAuroraQuery.ts` into the service
-   - Keep hooks thin
-
-3. **Service Role Removal**
-   - Create `supabase/functions/manage-setup/index.ts` for server-side provisioning
-   - Client calls edge function instead of using service_role directly
-   - Service role never enters browser
-
-4. **Rate Limiting**
-   - Add `@upstash/rate-limit` or in-memory rate limiter to `/api/proxy`
-   - Apply per-IP limits for external API calls
-
-5. **Worker Improvements**
-   - Add lease renewal/heartbeat during long processing
+1. **Worker Resilience**
+   - Add heartbeat/lease renewal during long LLM calls
    - Add per-call retries (2 attempts with 1s/2s backoff) for transient API failures
-   - Add circuit breaker for Facebook/LLM
+   - Add simple circuit breaker for Facebook/LLM API errors
    - Add stdout JSON logging for Supabase Logs dashboard
 
-6. **Multi-Platform Prep**
+2. **TypeScript Strict Mode**
+   - Enable `noUnusedLocals`, `noUnusedParameters`, `strict` in tsconfig
+   - Fix any resulting errors
+
+3. **Multi-Platform Prep**
    - Create Platform abstraction interfaces
    - Instagram Graph API integration
    - LinkedIn API integration
+
+4. **Image Pipeline Enhancement**
+   - WebP/AVIF server-side conversion on uploaded images
+   - Responsive srcset generation
+
+5. **Auth Hardening**
+   - Enable Migration 3 (auth_user_isolation) by default for new installs
+   - Add Supabase Auth UI integration
+   - RLS policy verification
+
+6. **Analytics Expansion**
+   - Performance tracking over longer windows
+   - Export/CSV download
+   - Comparison periods
 
 ---
 
@@ -280,7 +298,7 @@ bun install           # Install dependencies
 bun run dev           # Start dev server
 bun run build         # Production build (Vercel preset)
 bun run tsc --noEmit  # TypeScript check (REQUIRED before commit)
-bun run test          # Run Vitest (33 tests)
+bun run test          # Run Vitest (51 tests)
 bun run test:watch    # Vitest in watch mode
 bun run lint          # ESLint
 bun run format        # Prettier

@@ -5,7 +5,7 @@ import { GlassButton } from "@/components/glass/GlassButton";
 import { GlassInput } from "@/components/glass/GlassInput";
 import { FacebookPreview } from "@/components/facebook/FacebookPreview";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect, memo } from "react";
 import { loadBrand, loadInstallStatus, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
 import {
   useDrafts,
@@ -268,7 +268,7 @@ function DraftsPage() {
   );
 }
 
-function DraftCard({
+const DraftCard = memo(function DraftCard({
   draft,
   pageName,
   selected,
@@ -364,7 +364,7 @@ function DraftCard({
       )}
     </GlassCard>
   );
-}
+});
 
 function EmptyState({
   title,
