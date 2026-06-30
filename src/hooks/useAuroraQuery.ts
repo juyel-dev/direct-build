@@ -2,12 +2,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createUserClient, isClientReady } from "../services/supabase-factory";
 import { DashboardService } from "../services/dashboard-service";
 import { AnalyticsService } from "../services/analytics/analytics.service";
-import { BriefRepository } from "../repositories/brief-repository";
-import { PageRepository } from "../repositories/page-repository";
-import { PostRepository } from "../repositories/post-repository";
-import { EngagementRepository } from "../repositories/engagement-repository";
-import { UsageRepository } from "../repositories/usage-repository";
-import { subDays } from "date-fns";
+import { DraftService } from "../services/draft/draft.service";
+import { ScheduleService } from "../services/schedule/schedule.service";
 import type { Brief } from "../types";
 
 export type DashboardBrief = {
@@ -28,18 +24,6 @@ export type DashboardStats = {
   workerLastRun: string | null;
   workerTodayRuns: number;
 };
-
-async function getRepos() {
-  const sb = await createUserClient();
-  if (!sb) throw new Error("Could not initialize Supabase client.");
-  return {
-    briefs: new BriefRepository(sb),
-    pages: new PageRepository(sb),
-    posts: new PostRepository(sb),
-    engagements: new EngagementRepository(sb),
-    usage: new UsageRepository(sb),
-  };
-}
 
 // ─── Dashboard ───────────────────────────────────────────
 export function useDashboardData() {
@@ -64,13 +48,10 @@ export function useDrafts() {
   return useQuery({
     queryKey: ["drafts"],
     queryFn: async () => {
-      const repos = await getRepos();
-      const [drafts, page] = await Promise.all([
-        repos.briefs.findDrafts(),
-        repos.pages.findDefault(),
-      ]);
-      const pageName = page?.fb_page_name ?? "";
-      return { drafts: drafts as Draft[], pageName };
+      const sb = await createUserClient();
+      if (!sb) throw new Error("Could not initialize Supabase client.");
+      const svc = new DraftService(sb);
+      return svc.findDrafts();
     },
     enabled: isClientReady(),
     staleTime: 30_000,
@@ -81,8 +62,10 @@ export function useApproveDraft() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (draftId: string) => {
-      const repos = await getRepos();
-      await repos.briefs.approve(draftId);
+      const sb = await createUserClient();
+      if (!sb) throw new Error("Could not initialize Supabase client.");
+      const svc = new DraftService(sb);
+      await svc.approve(draftId);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["drafts"] });
@@ -95,8 +78,10 @@ export function useRejectDraft() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (draftId: string) => {
-      const repos = await getRepos();
-      await repos.briefs.reject(draftId);
+      const sb = await createUserClient();
+      if (!sb) throw new Error("Could not initialize Supabase client.");
+      const svc = new DraftService(sb);
+      await svc.reject(draftId);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["drafts"] });
@@ -109,8 +94,10 @@ export function useBulkApproveDrafts() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (draftIds: string[]) => {
-      const repos = await getRepos();
-      await repos.briefs.bulkApprove(draftIds);
+      const sb = await createUserClient();
+      if (!sb) throw new Error("Could not initialize Supabase client.");
+      const svc = new DraftService(sb);
+      await svc.bulkApprove(draftIds);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["drafts"] });
@@ -123,8 +110,10 @@ export function useBulkRejectDrafts() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (draftIds: string[]) => {
-      const repos = await getRepos();
-      await repos.briefs.bulkReject(draftIds);
+      const sb = await createUserClient();
+      if (!sb) throw new Error("Could not initialize Supabase client.");
+      const svc = new DraftService(sb);
+      await svc.bulkReject(draftIds);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["drafts"] });
@@ -154,21 +143,8 @@ export function useScheduleData(weekDays: Date[], pageId: string) {
     queryFn: async () => {
       const sb = await createUserClient();
       if (!sb) return { pages: [], briefs: [] };
-
-      const pageRepo = new PageRepository(sb);
-      const briefRepo = new BriefRepository(sb);
-      const pages = ((await pageRepo.findDefault())
-        ? [{ id: (await pageRepo.findDefault())!.id, fb_page_name: (await pageRepo.findDefault())!.fb_page_name }]
-        : []) as Page[];
-
-      const pid = pageId || pages[0]?.id;
-      if (!pid) return { pages, briefs: [] };
-
-      const weekStart = weekDays[0].toISOString();
-      const weekEnd = new Date(weekDays[6]);
-      weekEnd.setDate(weekEnd.getDate() + 1);
-      const briefs = await briefRepo.findByPageAndRange(pid, weekStart, weekEnd.toISOString());
-      return { pages, briefs: briefs as ScheduleBrief[] };
+      const svc = new ScheduleService(sb);
+      return svc.findScheduleData(weekDays, pageId);
     },
     enabled: isClientReady(),
     staleTime: 15_000,
@@ -209,8 +185,8 @@ export function useActivePageId() {
     queryFn: async () => {
       const sb = await createUserClient();
       if (!sb) return null;
-      const repo = new PageRepository(sb);
-      return repo.getActivePageId();
+      const svc = new ScheduleService(sb);
+      return svc.findActivePageId();
     },
     enabled: isClientReady(),
     staleTime: 300_000,
@@ -222,8 +198,10 @@ export function useDraftCount() {
   return useQuery({
     queryKey: ["draftCount"],
     queryFn: async () => {
-      const repos = await getRepos();
-      return repos.briefs.countDrafts();
+      const sb = await createUserClient();
+      if (!sb) return 0;
+      const svc = new DraftService(sb);
+      return svc.countDrafts();
     },
     enabled: isClientReady(),
     staleTime: 30_000,

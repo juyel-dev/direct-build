@@ -1,11 +1,10 @@
 import {
-  createBucket,
   deployEdgeFunction,
-  listBuckets,
   runSql,
   setProjectSecrets,
 } from "./management-api";
-import { AURORA_WORKER_FUNCTION } from "./edge-functions";
+import { AURORA_WORKER_FUNCTION, MANAGE_SETUP_FUNCTION } from "./edge-functions";
+import { listBucketsViaEdgeFn, createBucketViaEdgeFn } from "./manage-setup-client";
 import { MIGRATIONS } from "./migrations";
 import {
   loadInstallStatus,
@@ -75,24 +74,6 @@ export async function runSetup(
         },
       );
     }
-
-    await stepRunner({ key: "bucket", label: "Create storage bucket" }, async () => {
-      if (!secrets.supabaseServiceKey) {
-        throw new Error("Service role key required to manage storage buckets.");
-      }
-      const buckets = await listBuckets(secrets.supabaseUrl, secrets.supabaseServiceKey).catch(
-        () => [] as { name: string }[],
-      );
-      if (buckets.some((b) => b.name === STORAGE_BUCKET)) {
-        status.storageBucketReady = true;
-        saveInstallStatus(status);
-        return `Bucket "${STORAGE_BUCKET}" already exists.`;
-      }
-      await createBucket(secrets.supabaseUrl, secrets.supabaseServiceKey, STORAGE_BUCKET, true);
-      status.storageBucketReady = true;
-      saveInstallStatus(status);
-      return `Created bucket "${STORAGE_BUCKET}".`;
-    });
 
     const automationSecret = crypto.randomUUID();
 
@@ -165,6 +146,24 @@ export async function runSetup(
         ],
       );
       return `Synced ${brand.postingMode.replace("_", " ")} mode and ${brand.postingWindows.length} posting windows.`;
+    });
+
+    await stepRunner({ key: "edge-setup", label: "Deploy setup helper Edge Function" }, async () => {
+      await deployEdgeFunction(secrets.supabasePAT, ref, MANAGE_SETUP_FUNCTION);
+      return `Deployed ${MANAGE_SETUP_FUNCTION.slug}.`;
+    });
+
+    await stepRunner({ key: "bucket", label: "Create storage bucket" }, async () => {
+      const buckets = await listBucketsViaEdgeFn(secrets.supabaseUrl, secrets.supabasePAT);
+      if (buckets.some((b) => b.name === STORAGE_BUCKET)) {
+        status.storageBucketReady = true;
+        saveInstallStatus(status);
+        return `Bucket "${STORAGE_BUCKET}" already exists.`;
+      }
+      await createBucketViaEdgeFn(secrets.supabaseUrl, secrets.supabasePAT, STORAGE_BUCKET, true);
+      status.storageBucketReady = true;
+      saveInstallStatus(status);
+      return `Created bucket "${STORAGE_BUCKET}".`;
     });
 
     await stepRunner({ key: "edge-worker", label: "Deploy automation Edge Function" }, async () => {

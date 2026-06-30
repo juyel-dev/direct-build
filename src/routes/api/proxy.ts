@@ -1,21 +1,50 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
+import { createLogger } from "../../logger";
 
-/**
- * Generic CORS-bypass proxy.
- *
- * The whole app is "Bring Your Own Backend" — the browser needs to talk to
- * api.supabase.com, OpenAI / OpenRouter / Anthropic / etc, and the Facebook
- * Graph API. None of those allow arbitrary-origin browser fetches with an
- * Authorization header. This route forwards the request server-side so CORS
- * stops mattering.
- *
- * Body: { url: string, method?: string, headers?: Record<string,string>, body?: string }
- * Response: { status, headers, body }   (always 200 from our side; real status
- * is inside the payload so the client can inspect it without `fetch` throwing).
- */
+const log = createLogger("api/proxy");
 
-const ALLOWED_HOSTS = new Set([
-  "api.supabase.com",
+/* ─── Rate limiting (in-memory sliding window) ──────────────── */
+
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 120;
+
+const hitCounts = new Map<string, { count: number; resetAt: number }>();
+
+function getClientIp(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
+  const cf = request.headers.get("cf-connecting-ip");
+  if (cf) return cf;
+  return "127.0.0.1";
+}
+
+function checkRateLimit(ip: string): { allowed: boolean; remaining: number } {
+  const now = Date.now();
+  const entry = hitCounts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    hitCounts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true, remaining: RATE_LIMIT_MAX - 1 };
+  }
+  entry.count += 1;
+  if (entry.count > RATE_LIMIT_MAX) {
+    return { allowed: false, remaining: 0 };
+  }
+  return { allowed: true, remaining: RATE_LIMIT_MAX - entry.count };
+}
+
+/* ─── Zod validation ────────────────────────────────────────── */
+
+const ProxyRequestSchema = z.object({
+  url: z.string().url(),
+  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]).default("GET"),
+  headers: z.record(z.string()).optional().default({}),
+  body: z.string().optional(),
+}).strict();
+
+/* ─── Allowlist ─────────────────────────────────────────────── */
+
+const ALLOWED_HOST_EXACT = new Set([
   "graph.facebook.com",
   "api.openai.com",
   "openrouter.ai",
@@ -25,7 +54,44 @@ const ALLOWED_HOSTS = new Set([
   "api.replicate.com",
   "api.stability.ai",
   "image.pollinations.ai",
+  "api.supabase.com",
 ]);
+
+function isHostAllowed(hostname: string): boolean {
+  if (ALLOWED_HOST_EXACT.has(hostname)) return true;
+  if (hostname.endsWith(".supabase.co")) return true;
+  return false;
+}
+
+/* ─── SSRF / abuse protection ───────────────────────────────── */
+
+const PRIVATE_RANGES = [
+  /^127\./,
+  /^10\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^192\.168\./,
+  /^0\./,
+  /^169\.254\./,
+  /^\[::1\]$/,
+  /^\[fc00:/,
+  /^\[fe80:/,
+];
+
+function isPrivateHost(hostname: string): boolean {
+  const lower = hostname.toLowerCase();
+  if (lower === "localhost" || lower === "127.0.0.1" || lower === "::1") return true;
+  if (lower.endsWith(".local") || lower.endsWith(".internal")) return true;
+  for (const pattern of PRIVATE_RANGES) {
+    if (pattern.test(lower)) return true;
+  }
+  return false;
+}
+
+/* ─── Response size limit ───────────────────────────────────── */
+
+const MAX_RESPONSE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+/* ─── CORS headers ──────────────────────────────────────────── */
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -33,85 +99,119 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 } as const;
 
-interface ProxyReq {
-  url: string;
-  method?: string;
-  headers?: Record<string, string>;
-  body?: string;
-}
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "x-xss-protection": "1; mode=block",
+} as const;
 
-function hostAllowed(u: URL): boolean {
-  if (ALLOWED_HOSTS.has(u.hostname)) return true;
-  // Allow any *.supabase.co (user's own project REST/storage) and user-defined
-  // self-hosted LLM endpoints are blocked here — they must run on the same
-  // origin or expose CORS themselves.
-  if (u.hostname.endsWith(".supabase.co")) return true;
-  return false;
-}
+/* ─── Route ─────────────────────────────────────────────────── */
 
 export const Route = createFileRoute("/api/proxy")({
   server: {
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
+
       POST: async ({ request }) => {
-        let payload: ProxyReq;
+        const ip = getClientIp(request);
+
+        /* Rate limit check */
+        const { allowed, remaining } = checkRateLimit(ip);
+        if (!allowed) {
+          log.warn("Rate limit exceeded", { ip });
+          return json({ error: "Too many requests. Try again later." }, 429);
+        }
+
+        /* Parse & validate */
+        let payload: z.infer<typeof ProxyRequestSchema>;
         try {
-          payload = (await request.json()) as ProxyReq;
+          const raw = await request.json();
+          const parsed = ProxyRequestSchema.safeParse(raw);
+          if (!parsed.success) {
+            log.warn("Validation failed", { errors: parsed.error.issues.map(i => i.message) });
+            return json({ error: "Invalid request", details: parsed.error.issues }, 400);
+          }
+          payload = parsed.data;
         } catch {
           return json({ error: "Invalid JSON body" }, 400);
         }
-        if (!payload?.url) return json({ error: "Missing url" }, 400);
 
+        /* Validate URL */
         let target: URL;
-        try {
-          target = new URL(payload.url);
-        } catch {
+        try { target = new URL(payload.url); } catch {
           return json({ error: "Invalid url" }, 400);
         }
-        if (target.protocol !== "https:" && target.protocol !== "http:") {
-          return json({ error: "Only http(s) allowed" }, 400);
+
+        /* Enforce HTTPS */
+        if (target.protocol === "http:" && !target.hostname.endsWith(".supabase.co")) {
+          return json({ error: "HTTPS required" }, 400);
         }
-        if (!hostAllowed(target)) {
+
+        /* Allowlist */
+        if (!isHostAllowed(target.hostname)) {
+          log.warn("Blocked host", { hostname: target.hostname, ip });
           return json({ error: `Host not allowed: ${target.hostname}` }, 403);
         }
 
+        /* SSRF protection */
+        if (isPrivateHost(target.hostname)) {
+          log.warn("SSRF blocked", { hostname: target.hostname, ip });
+          return json({ error: "Internal hosts not allowed" }, 403);
+        }
+
+        /* Forward request */
         const init: RequestInit = {
-          method: payload.method ?? "GET",
-          headers: payload.headers ?? {},
+          method: payload.method,
+          headers: payload.headers,
         };
-        if (payload.body !== undefined && init.method !== "GET" && init.method !== "HEAD") {
+        if (payload.body && payload.method !== "GET" && payload.method !== "HEAD") {
           init.body = payload.body;
         }
 
         try {
           const upstream = await fetch(target.toString(), init);
           const text = await upstream.text();
-          const headers: Record<string, string> = {};
-          upstream.headers.forEach((v, k) => {
-            headers[k] = v;
-          });
-          return json({ status: upstream.status, headers, body: text }, 200);
-        } catch (e) {
-          return json(
-            {
-              error: e instanceof Error ? e.message : String(e),
+
+          /* Check response size */
+          const size = new TextEncoder().encode(text).byteLength;
+          if (size > MAX_RESPONSE_BYTES) {
+            log.warn("Response too large", { size, hostname: target.hostname });
+            return json({
+              error: "Upstream response too large",
               status: 0,
               body: "",
               headers: {},
-            },
-            200,
-          );
+            }, 200);
+          }
+
+          log.info("Proxied request", {
+            method: payload.method,
+            hostname: target.hostname,
+            status: upstream.status,
+            size,
+            ip,
+          });
+
+          const headers: Record<string, string> = {};
+          upstream.headers.forEach((v, k) => { headers[k] = v; });
+          return json({ status: upstream.status, headers, body: text }, 200);
+        } catch (e) {
+          log.error("Upstream fetch failed", {
+            hostname: target.hostname,
+            error: e instanceof Error ? e.message : String(e),
+            ip,
+          });
+          return json({
+            error: e instanceof Error ? e.message : String(e),
+            status: 0,
+            body: "",
+            headers: {},
+          }, 200);
         }
       },
     },
   },
 });
-
-const SECURITY_HEADERS = {
-  "x-content-type-options": "nosniff",
-  "x-frame-options": "DENY",
-  "x-xss-protection": "1; mode=block",
-} as const;
 
 function json(data: unknown, status: number): Response {
   return new Response(JSON.stringify(data), {
