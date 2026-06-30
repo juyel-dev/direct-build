@@ -1,13 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createUserClient, isClientReady } from "../services/supabase-factory";
 import { DashboardService } from "../services/dashboard-service";
+import { AnalyticsService } from "../services/analytics/analytics.service";
 import { BriefRepository } from "../repositories/brief-repository";
 import { PageRepository } from "../repositories/page-repository";
 import { PostRepository } from "../repositories/post-repository";
 import { EngagementRepository } from "../repositories/engagement-repository";
 import { UsageRepository } from "../repositories/usage-repository";
-import { subDays, format } from "date-fns";
-import type { Brief, EngagementSnapshot, AiUsage } from "../types";
+import { subDays } from "date-fns";
+import type { Brief } from "../types";
 
 export type DashboardBrief = {
   id: string;
@@ -193,65 +194,8 @@ export function useAnalyticsData(days: number = 30) {
     queryFn: async () => {
       const sb = await createUserClient();
       if (!sb) return { series: [], topPosts: [], costByProvider: [], totalCost: 0 };
-
-      const since = subDays(new Date(), days).toISOString();
-      const repos = await getRepos();
-
-      const [snaps, posts, briefs, usage] = await Promise.all([
-        repos.engagements.findByDateRange(since),
-        repos.posts.findPublishedWithMetrics(since),
-        sb.from("content_briefs").select("id, topic"),
-        repos.usage.findByDateRange(since),
-      ]);
-
-      const snapData = snaps as EngagementSnap[];
-
-      // Engagement series
-      const buckets = new Map<string, { likes: number; comments: number; shares: number }>();
-      for (const s of snapData) {
-        const key = format(new Date(s.captured_at), "MMM d");
-        const cur = buckets.get(key) ?? { likes: 0, comments: 0, shares: 0 };
-        cur.likes += s.likes;
-        cur.comments += s.comments;
-        cur.shares += s.shares;
-        buckets.set(key, cur);
-      }
-      const series = Array.from(buckets.entries()).map(([date, v]) => ({ date, ...v }));
-
-      // Top posts
-      const briefMap = new Map(
-        (briefs.data ?? []).map((b: { id: string; topic: string }) => [b.id, b.topic])
-      );
-      const postIdToBrief = new Map(
-        (posts as Array<{ id: string; content_brief_id: string | null; fb_permalink_url: string | null }>).map(
-          (p) => [p.id, { brief: briefMap.get(p.content_brief_id ?? "") ?? "Untitled", url: p.fb_permalink_url }]
-        )
-      );
-      const scoreByPost = new Map<string, number>();
-      for (const s of snapData) {
-        scoreByPost.set(
-          s.post_id,
-          (scoreByPost.get(s.post_id) ?? 0) + s.likes + s.comments * 2 + s.shares * 3
-        );
-      }
-      const topPosts = Array.from(scoreByPost.entries())
-        .sort((a, z) => z[1] - a[1])
-        .slice(0, 5)
-        .map(([pid, score]) => {
-          const meta = postIdToBrief.get(pid);
-          return { topic: meta?.brief ?? "Unknown", url: meta?.url ?? null, score };
-        });
-
-      // AI spend
-      const costMap = new Map<string, number>();
-      let totalCost = 0;
-      for (const u of usage as AiUsage[]) {
-        costMap.set(u.provider, (costMap.get(u.provider) ?? 0) + Number(u.estimated_cost_usd ?? 0));
-        totalCost += Number(u.estimated_cost_usd ?? 0);
-      }
-      const costByProvider = Array.from(costMap.entries()).map(([name, value]) => ({ name, value }));
-
-      return { series, topPosts, costByProvider, totalCost };
+      const svc = new AnalyticsService(sb);
+      return svc.getAnalytics(days);
     },
     enabled: isClientReady(),
     staleTime: 60_000,

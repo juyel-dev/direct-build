@@ -43,13 +43,7 @@ export class PublishingService extends BaseService {
   }
 
   async loadBrief(briefId: string) {
-    const { data, error } = await this._client
-      .from("content_briefs")
-      .select("id, page_id, slot_start, topic, caption, hashtags, image_prompt, image_url, status")
-      .eq("id", briefId)
-      .single();
-    if (error) this.handleError(new Error(error.message), "loadBrief");
-    return data as Record<string, unknown> | null;
+    return this.briefs.findById(briefId);
   }
 
   async saveDraft(input: SaveDraftInput): Promise<void> {
@@ -63,53 +57,36 @@ export class PublishingService extends BaseService {
       image_url: input.imageUrl,
       status: input.status,
       approved_at: input.status === "approved" ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString(),
     };
 
     if (input.briefId) {
-      const { error } = await this._client.from("content_briefs").update(rowData).eq("id", input.briefId);
-      if (error) this.handleError(error, "saveDraft.update");
+      await this.briefs.patch(input.briefId, rowData);
     } else {
-      const { error } = await this._client.from("content_briefs").insert(rowData);
-      if (error) this.handleError(error, "saveDraft.insert");
+      await this.briefs.upsert(rowData);
     }
 
     this.log("saveDraft", `Brief ${input.briefId ? "updated" : "created"} with status ${input.status}`, { pageId: input.pageId });
   }
 
   async createBrief(input: CreateBriefInput): Promise<ScheduleBrief | null> {
-    const { data, error } = await this._client
-      .from("content_briefs")
-      .insert({
-        page_id: input.pageId,
-        slot_start: input.slotStart,
-        topic: input.topic ?? "",
-        caption: input.caption ?? "",
-        hashtags: [],
-        image_prompt: "",
-        status: input.status ?? "draft",
-      })
-      .select("*")
-      .single();
-
-    if (error) this.handleError(error, "createBrief");
+    const data = await this.briefs.insert({
+      page_id: input.pageId,
+      slot_start: input.slotStart,
+      topic: input.topic ?? "",
+      caption: input.caption ?? "",
+      hashtags: [],
+      image_prompt: "",
+      status: input.status ?? "draft",
+    });
     return (data ?? null) as ScheduleBrief | null;
   }
 
   async patchBrief(id: string, patch: Partial<Record<string, unknown>>): Promise<void> {
-    const { error } = await this._client
-      .from("content_briefs")
-      .update({ ...patch, updated_at: new Date().toISOString() })
-      .eq("id", id);
-    if (error) this.handleError(error, "patchBrief");
+    await this.briefs.patch(id, patch);
   }
 
   async deleteBrief(id: string): Promise<void> {
-    const { error } = await this._client
-      .from("content_briefs")
-      .delete()
-      .eq("id", id);
-    if (error) this.handleError(error, "deleteBrief");
+    await this.briefs.delete(id);
   }
 
   async uploadImage(

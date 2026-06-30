@@ -148,6 +148,13 @@ Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene des
     e.dataTransfer.effectAllowed = "move";
   }, []);
 
+  const quickTimeAdjust = useCallback(
+    async (briefId: string, slotStart: string, mins: number) => {
+      await patchBrief(briefId, { slot_start: addMinutes(new Date(slotStart), mins).toISOString() });
+    },
+    [patchBrief],
+  );
+
   const onDropOnDay = useCallback(
     async (e: React.DragEvent, day: Date) => {
       e.preventDefault();
@@ -191,6 +198,7 @@ Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene des
     onDragStart,
     onDropOnDay,
     patchBrief,
+    quickTimeAdjust,
     nextSuggestedSlot,
   };
 }

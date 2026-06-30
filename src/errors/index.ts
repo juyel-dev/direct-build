@@ -9,6 +9,7 @@ export class AppError extends Error {
   ) {
     super(message);
     this.name = "AppError";
+    this.context = context;
   }
 }
 
@@ -51,7 +52,19 @@ export class ConfigurationError extends AppError {
   }
 }
 
+export class RateLimitError extends AppError {
+  constructor(
+    message: string,
+    public retryAfterMs: number,
+  ) {
+    super(message, "RATE_LIMITED", 429, { retryAfterMs });
+    this.name = "RateLimitError";
+  }
+}
+
 export class ExternalServiceError extends AppError {
+  public service: string;
+
   constructor(
     service: string,
     status: number,
@@ -64,6 +77,7 @@ export class ExternalServiceError extends AppError {
       { service, upstreamStatus: status },
     );
     this.name = "ExternalServiceError";
+    this.service = service;
   }
 }
 

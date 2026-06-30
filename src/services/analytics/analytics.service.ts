@@ -3,6 +3,7 @@ import { BaseService } from "../base";
 import { EngagementRepository } from "../../repositories/engagement-repository";
 import { PostRepository } from "../../repositories/post-repository";
 import { UsageRepository } from "../../repositories/usage-repository";
+import { BriefRepository } from "../../repositories/brief-repository";
 import { format } from "date-fns";
 import type { EngagementSnapshot, AiUsage } from "../../types";
 
@@ -15,6 +16,7 @@ export class AnalyticsService extends BaseService {
   private engagements: EngagementRepository;
   private posts: PostRepository;
   private usage: UsageRepository;
+  private briefs: BriefRepository;
 
   constructor(client: SupabaseClient) {
     super("AnalyticsService");
@@ -22,21 +24,22 @@ export class AnalyticsService extends BaseService {
     this.engagements = new EngagementRepository(client);
     this.posts = new PostRepository(client);
     this.usage = new UsageRepository(client);
+    this.briefs = new BriefRepository(client);
   }
 
   async getAnalytics(days: number = 30) {
     const since = new Date(Date.now() - days * 86400_000).toISOString();
 
-    const [snaps, posts, briefs, usage] = await Promise.all([
+    const [snaps, posts, briefTopics, usage] = await Promise.all([
       this.engagements.findByDateRange(since),
       this.posts.findPublishedWithMetrics(since),
-      this._client.from("content_briefs").select("id, topic"),
+      this.briefs.findBriefTopics(),
       this.usage.findByDateRange(since),
     ]);
 
     const snapData = (Array.isArray(snaps) ? snaps : []) as EngagementSnapshot[];
     const series = this.buildEngagementSeries(snapData);
-    const topPosts = this.buildTopPosts(snapData, posts, briefs.data ?? []);
+    const topPosts = this.buildTopPosts(snapData, posts, briefTopics);
     const { costByProvider, totalCost } = this.buildCostData(usage as AiUsage[]);
 
     return { series, topPosts, costByProvider, totalCost };

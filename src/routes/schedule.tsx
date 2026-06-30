@@ -7,7 +7,7 @@ import { FacebookPreview } from "@/components/facebook/FacebookPreview";
 import { useMemo } from "react";
 import { loadInstallStatus, getSessionPassphrase } from "@/lib/config-store";
 import { useSchedule, type ViewMode } from "@/hooks/useSchedule";
-import { format, addMinutes } from "date-fns";
+import { format } from "date-fns";
 import {
   PlusIcon,
   SparklesIcon,
@@ -55,6 +55,7 @@ function SchedulePage() {
     onDragStart,
     onDropOnDay,
     nextSuggestedSlot,
+    quickTimeAdjust,
   } = useSchedule();
 
   const inst = useMemo(() => loadInstallStatus(), []);
@@ -164,16 +165,7 @@ function SchedulePage() {
           onPreview={(b) => setPreviewing(b)}
           onDragStart={onDragStart}
           onDrop={onDropOnDay}
-          onQuickTime={(b, mins) => {
-            import("@/services/supabase-factory").then((m) => m.createUserClient()).then((sb) => {
-              if (!sb) return;
-              import("@/services/publishing/publishing.service").then(({ PublishingService }) => {
-                new PublishingService(sb).patchBrief(b.id, {
-                  slot_start: addMinutes(new Date(b.slot_start), mins).toISOString(),
-                });
-              });
-            });
-          }}
+          onQuickTime={(b, mins) => quickTimeAdjust(b.id, b.slot_start, mins)}
         />
       )}
 

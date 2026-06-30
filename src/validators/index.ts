@@ -39,15 +39,15 @@ export const SecretsSchema = z.object({
 
 export const ProvidersSchema = z.object({
   llm: z.object({
-    type: AIProviderTypeSchema,
+    type: AIProviderTypeSchema.default("openrouter"),
     baseUrl: z.string().url().optional().or(z.literal("")),
-    model: z.string().min(1),
-  }),
+    model: z.string().min(1).default("gpt-4o"),
+  }).default({}),
   image: z.object({
-    type: ImageProviderTypeSchema,
+    type: ImageProviderTypeSchema.default("pollinations"),
     baseUrl: z.string().url().optional().or(z.literal("")),
-    model: z.string().min(1),
-  }),
+    model: z.string().min(1).default("flux"),
+  }).default({}),
 });
 
 export const PostingWindowSchema = z.object({
@@ -84,6 +84,32 @@ export const ContentBriefSchema = z.object({
   status: z
     .enum(["draft", "approved", "scheduled", "published", "skipped", "failed"])
     .default("draft"),
+});
+
+export const PostSchema = z.object({
+  id: z.string(),
+  page_id: z.string(),
+  content_brief_id: z.string().nullable(),
+  fb_post_id: z.string().nullable(),
+  fb_permalink_url: z.string().url().nullable(),
+  status: z.enum(["pending", "published", "failed"]),
+  published_at: z.string().datetime().nullable(),
+});
+
+export const EngagementSnapshotSchema = z.object({
+  post_id: z.string(),
+  captured_at: z.string().datetime(),
+  likes: z.number().int().nonnegative(),
+  comments: z.number().int().nonnegative(),
+  shares: z.number().int().nonnegative(),
+  impressions: z.number().int().nonnegative().default(0),
+  reach: z.number().int().nonnegative().default(0),
+});
+
+export const WorkerStatusSchema = z.object({
+  lastRun: z.string().datetime().nullable(),
+  todayRuns: z.number().int().nonnegative(),
+  healthy: z.boolean(),
 });
 
 export const PageSchema = z.object({

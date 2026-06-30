@@ -81,6 +81,58 @@ export class BriefRepository extends BaseRepository {
     if (error) this.handleError(error, "briefs.bulkReject");
   }
 
+  async findBriefTopics(): Promise<{ id: string; topic: string }[]> {
+    const { data, error } = await this.client
+      .from("content_briefs")
+      .select("id, topic");
+    if (error) this.handleError(error, "briefs.findBriefTopics");
+    return (data ?? []) as { id: string; topic: string }[];
+  }
+
+  async findById(id: string): Promise<Record<string, unknown> | null> {
+    const { data, error } = await this.client
+      .from("content_briefs")
+      .select("id, page_id, slot_start, topic, caption, hashtags, image_prompt, image_url, status")
+      .eq("id", id)
+      .single();
+    if (error) {
+      if (error.code === "PGRST116") return null;
+      this.handleError(error, "briefs.findById");
+    }
+    return data as Record<string, unknown> | null;
+  }
+
+  async upsert(row: Record<string, unknown>): Promise<void> {
+    const { error } = await this.client.from("content_briefs").upsert(row);
+    if (error) this.handleError(error, "briefs.upsert");
+  }
+
+  async insert(row: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    const { data, error } = await this.client
+      .from("content_briefs")
+      .insert(row)
+      .select("*")
+      .single();
+    if (error) this.handleError(error, "briefs.insert");
+    return data as Record<string, unknown> | null;
+  }
+
+  async patch(id: string, updates: Record<string, unknown>): Promise<void> {
+    const { error } = await this.client
+      .from("content_briefs")
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) this.handleError(error, "briefs.patch");
+  }
+
+  async delete(id: string): Promise<void> {
+    const { error } = await this.client
+      .from("content_briefs")
+      .delete()
+      .eq("id", id);
+    if (error) this.handleError(error, "briefs.delete");
+  }
+
   async countDrafts(): Promise<number> {
     const { count, error } = await this.client
       .from("content_briefs")

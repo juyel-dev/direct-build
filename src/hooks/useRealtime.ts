@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { createClient } from "@supabase/supabase-js";
-import { getSessionPassphrase, loadSecrets, hasStoredSecrets } from "@/lib/config-store";
+import { createUserClient } from "../services/supabase-factory";
 import { useQueryClient } from "@tanstack/react-query";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * Subscribes to Supabase Realtime changes on key tables and
@@ -9,23 +9,16 @@ import { useQueryClient } from "@tanstack/react-query";
  */
 export function useRealtime(pageId: string | null) {
   const queryClient = useQueryClient();
-  const channelRef = useRef<ReturnType<typeof createClient.prototype.channel> | null>(null);
+  const channelRef = useRef<ReturnType<SupabaseClient["channel"]> | null>(null);
 
   useEffect(() => {
-    if (!pageId || !hasStoredSecrets()) return;
-
-    const pass = getSessionPassphrase();
-    if (!pass) return;
+    if (!pageId) return;
 
     let cancelled = false;
 
     (async () => {
-      const secrets = await loadSecrets(pass);
-      if (!secrets || cancelled) return;
-
-      const supabase = createClient(secrets.supabaseUrl, secrets.supabaseAnonKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
+      const supabase = await createUserClient();
+      if (!supabase || cancelled) return;
 
       const channel = supabase
         .channel("aurora-realtime")

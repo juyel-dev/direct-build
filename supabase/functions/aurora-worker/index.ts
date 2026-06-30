@@ -37,6 +37,21 @@ type Job = {
 const GRAPH_VERSION = "v21.0";
 const WORKER_NAME = "aurora-worker";
 
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit & { timeout?: number } = {},
+) {
+  const { timeout = 30_000, ...fetchOpts } = options;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { ...fetchOpts, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-automation-secret",
@@ -223,8 +238,9 @@ async function generateBriefIdeas(page: Page, slots: Date[]) {
     slots: slots.map((slot) => slot.toISOString()),
   };
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
+    timeout: 30_000,
     headers: { "content-type": "application/json", authorization: `Bearer ${aiKey}` },
     body: JSON.stringify({
       model,
@@ -281,8 +297,9 @@ async function maybeGenerateImageUrl(prompt: string): Promise<string | null> {
     return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?model=${encodeURIComponent(model)}&nologo=true`;
   }
   if (provider === "openai_dalle" && Deno.env.get("FBAI_IMAGE_API_KEY")) {
-    const response = await fetch("https://api.openai.com/v1/images/generations", {
+    const response = await fetchWithTimeout("https://api.openai.com/v1/images/generations", {
       method: "POST",
+      timeout: 20_000,
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${Deno.env.get("FBAI_IMAGE_API_KEY")}`,
@@ -327,23 +344,24 @@ async function publishDuePosts(page: Page) {
   const briefs = (data ?? []) as Brief[];
   let published = 0;
   for (const brief of briefs) {
-    const already = await existingPublishedPost(brief.id);
-    if (already) continue;
+    const claimed = await claimBriefForPublish(brief.id);
+    if (!claimed) continue;
     await publishBrief(page, brief, token);
     published += 1;
   }
   return `Published ${published} due posts.`;
 }
 
-async function existingPublishedPost(briefId: string) {
+async function claimBriefForPublish(briefId: string) {
   const { data, error } = await supabase
-    .from("posts")
+    .from("content_briefs")
+    .update({ status: "publishing", updated_at: new Date().toISOString() })
+    .eq("id", briefId)
+    .in("status", ["approved", "scheduled"])
     .select("id")
-    .eq("content_brief_id", briefId)
-    .eq("status", "published")
     .maybeSingle();
   if (error) throw error;
-  return data;
+  return data !== null;
 }
 
 async function publishBrief(page: Page, brief: Brief, token: string) {
@@ -373,7 +391,7 @@ async function publishBrief(page: Page, brief: Brief, token: string) {
     body.set("message", caption);
   }
 
-  const response = await fetch(endpoint, { method: "POST", body });
+  const response = await fetchWithTimeout(endpoint, { method: "POST", body, timeout: 15_000 });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || result.error) {
     const errorText = result.error?.message ?? JSON.stringify(result).slice(0, 200);
@@ -439,8 +457,11 @@ async function captureEngagement(page: Page, windowDays: number) {
 async function fetchFacebookMetrics(fbPostId: string, token: string) {
   const fields =
     "shares,comments.summary(true),reactions.summary(true),insights.metric(post_impressions,post_impressions_unique)";
-  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(fbPostId)}?fields=${encodeURIComponent(fields)}&access_token=${encodeURIComponent(token)}`;
-  const response = await fetch(url);
+  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(fbPostId)}?fields=${encodeURIComponent(fields)}`;
+  const response = await fetchWithTimeout(url, {
+    timeout: 15_000,
+    headers: { authorization: `Bearer ${token}` },
+  });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || body.error)
     throw new Error(body.error?.message ?? `Graph API ${response.status}`);

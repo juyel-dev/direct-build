@@ -36,6 +36,24 @@ function createEntry(
   return { level, message, context, timestamp: new Date().toISOString() };
 }
 
+export function createLogger(name: string) {
+  const prefix = `[${name}]`;
+  return {
+    debug: (message: string, context?: Record<string, unknown>) =>
+      logger.debug(`${prefix} ${message}`, context),
+    info: (message: string, context?: Record<string, unknown>) =>
+      logger.info(`${prefix} ${message}`, context),
+    warn: (message: string, context?: Record<string, unknown>) =>
+      logger.warn(`${prefix} ${message}`, context),
+    error: (message: string, context?: Record<string, unknown>) =>
+      logger.error(`${prefix} ${message}`, context),
+    log: (message: string, context?: Record<string, unknown>) =>
+      logger.info(`${prefix} ${message}`, context),
+    logError: (context: string, message: string) =>
+      logger.error(`${prefix} [${context}] ${message}`),
+  };
+}
+
 export const logger = {
   debug(message: string, context?: Record<string, unknown>) {
     if (!shouldLog("debug")) return;
