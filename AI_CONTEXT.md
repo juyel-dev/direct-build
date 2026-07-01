@@ -412,10 +412,121 @@ bun run format        # Prettier
 
 ---
 
-## Deployment
+## Deployment Architecture
 
-- **Platform:** Vercel (via Nitro SSR preset)
-- **Config:** `vercel.json` + `vite.config.ts`
-- **Edge Function:** Supabase (`supabase/functions/aurora-worker`) deployed to user's project during setup
-- **Cron:** pg_cron runs every minute
-- **To deploy:** Push `main` branch → Vercel auto-deploys via GitHub integration
+### CI/CD Pipeline
+
+```
+GitHub Repository (main branch)
+    │
+    ├── Push / Merge to main
+    │       ↓
+    │   Vercel GitHub Integration (auto-detected)
+    │       ↓
+    │   Vercel Build (Vite + Nitro SSR, preset: vercel)
+    │       ↓
+    │   .vercel/output/ (static assets + SSR function)
+    │       ↓
+    │   Vercel Deployment (Production)
+    │       ↓
+    │   https://<project>.vercel.app/
+    │
+    └── Push to feature branch
+            ↓
+        Vercel Preview Deployment (unique URL)
+            ↓
+        Used for testing before merging to main
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `vercel.json` | Build command, framework, install command, GitHub integration settings |
+| `vite.config.ts` | Nitro Vercel preset (`preset: "vercel"`), SSR entry (`server.ts`) |
+| `package.json` | `vercel-build` script (maps to `bun run build`), dependency declarations |
+| `.vercel/output/` | Build output (Nitro generates this — NEVER commit, in `.gitignore`) |
+
+### Deployment Safety
+
+| Feature | How It Works |
+|---------|-------------|
+| **Production branch** | `main` — only merges to main trigger production deploy |
+| **Preview deployments** | Every push to non-main branch creates a preview with unique URL |
+| **Auto-cancelation** | `autoJobCancelation: true` — stale builds canceled when new pushes arrive |
+| **Failed builds** | Visible in Vercel Dashboard → Deployments → red status |
+| **Rollback** | Vercel Dashboard → Deployments → click "..." → "Rollback to this deployment" |
+| **Silent mode** | `silent: true` — GitHub comments disabled for deployment status |
+
+### Required Environment Variables
+
+Set these in Vercel Dashboard → Project Settings → Environment Variables (Production + Preview).
+
+#### Supabase
+| Variable | Source | Required |
+|----------|--------|----------|
+| `FBAI_SUPABASE_URL` | Supabase Dashboard → Settings → API → Project URL | Yes |
+| `FBAI_SUPABASE_ANON_KEY` | Supabase Dashboard → Settings → API → anon/public key | Yes |
+| `FBAI_SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard → Settings → API → service_role key | Yes |
+| `SUPABASE_URL` | Same as `FBAI_SUPABASE_URL` (legacy) | Yes |
+| `SUPABASE_ANON_KEY` | Same as `FBAI_SUPABASE_ANON_KEY` (legacy) | Yes |
+| `SUPABASE_AUTH_CALLBACK_URL` | `https://<project>.vercel.app/auth/callback` | Yes |
+
+#### Facebook
+| Variable | Source | Required |
+|----------|--------|----------|
+| `FBAI_FB_PAGE_TOKEN` | Facebook Graph API (long-lived page token) | Yes |
+
+#### AI Providers
+| Variable | Source | Required |
+|----------|--------|----------|
+| `FBAI_ENCRYPTION_KEY` | Generated via `crypto.getRandomValues(new Uint8Array(32))` → base64 | Yes |
+
+#### Auth & Security
+| Variable | Source | Required |
+|----------|--------|----------|
+| `FBAI_USER_PASSPHRASE` | User-chosen passphrase for credential encryption | Yes |
+| `FBAI_JWT_SECRET` | Generated random string (64+ chars) | Yes |
+
+#### Runtime Only (Never in Build)
+These env vars are referenced by name only in SSR code (`server.ts`, `/api/proxy`). The values are stored in Supabase Vault and read at runtime via `Deno.env.get()`. They NEVER appear in the client bundle.
+
+### Environment Variable Rules
+
+1. **Never commit secrets** — `.env*` files in `.gitignore`, only reference names in `AI_CONTEXT.md`
+2. **Never put tokens in frontend bundle** — All API keys accessed server-side via `/api/proxy` or Supabase Vault
+3. **Document required variables** — All env vars listed above with source instructions
+4. **Preview env overrides** — Set same env vars in Preview environment with test/sandbox values
+5. **Rotation** — Update env vars in Vercel Dashboard → redeploy to apply
+
+### How Future Agents Should Deploy Changes
+
+1. **Make changes** — Follow Routes → Hooks → Services → Repositories flow
+2. **Verify locally**:
+   ```bash
+   bun run tsc --noEmit   # Zero TypeScript errors
+   bun run test           # All 77 tests pass
+   bun run build          # Build succeeds (SSR + static)
+   ```
+3. **Commit and push** — Use conventional commit messages
+   ```bash
+   git add -A
+   git commit -m "description of change"
+   git push origin main
+   ```
+4. **Vercel auto-deploys** — Monitor at Vercel Dashboard → Deployments
+5. **Verify production** — Open the deployed URL, confirm the feature works
+6. **Manual deployment** — Only if GitHub integration is unavailable:
+   ```bash
+   npx vercel deploy --prebuilt --token <token>
+   ```
+7. **Rollback** — If production issue, rollback via Vercel Dashboard (not git revert)
+
+### Status
+
+- **Vercel GitHub Integration:** Not yet connected — user must connect via Vercel Dashboard
+- **Production URL:** Not yet deployed — after integration, first push deploys
+- **Preview Deployments:** Enabled via `vercel.json` GitHub settings
+- **Build Command:** `bun run build` (Vite + Nitro/Vercel preset)
+- **Tests Passing:** 77/77 (Vitest)
+- **TypeScript Errors:** 0 (`tsc --noEmit`)
