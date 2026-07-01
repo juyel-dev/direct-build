@@ -167,11 +167,28 @@ export class StrategyService extends BaseService {
   }
 
   async analyzePage(pageId: string, llm: LlmConfig): Promise<StrategyRecommendation[]> {
-    const [memory, insights, rawPosts] = await Promise.all([
-      this.brandMemory.load(pageId),
-      this.repo.loadInsights(pageId),
-      this.loadPostHistory(pageId),
-    ]);
+    let memory: BrandMemory | null;
+    let insights: {
+      best_posting_hour: number | null;
+      best_topics: string[];
+      avg_engagement_rate: number | null;
+    } | null;
+    let rawPosts: PostWithMetrics[];
+    try {
+      [memory, insights, rawPosts] = await Promise.all([
+        this.brandMemory.load(pageId),
+        this.repo.loadInsights(pageId),
+        this.loadPostHistory(pageId),
+      ]);
+    } catch (e) {
+      this.log("error", "Failed to load data for strategy analysis", {
+        error: e instanceof Error ? e.message : String(e),
+        page_id: pageId,
+      });
+      const existing = await this.repo.findByPage(pageId);
+      if (existing.length > 0) return existing;
+      throw e;
+    }
 
     const existing = await this.repo.findByPage(pageId);
 
@@ -196,9 +213,17 @@ export class StrategyService extends BaseService {
       priority: rec.priority ?? 0,
       related_content: rec.related_content ?? [],
     }));
-    await this.repo.insertBatch(batch);
-
-    await this.repo.dismissAll(pageId);
+    try {
+      await this.repo.insertBatch(batch);
+      await this.repo.dismissAll(pageId);
+    } catch (e) {
+      this.log("error", "Failed to persist strategy recommendations", {
+        error: e instanceof Error ? e.message : String(e),
+        page_id: pageId,
+      });
+      if (existing.length > 0) return existing;
+      throw e;
+    }
 
     return this.repo.findByPage(pageId);
   }

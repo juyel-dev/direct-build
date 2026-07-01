@@ -607,6 +607,146 @@ Before importing the repo into Vercel, verify each item:
    ```
 7. **Rollback** — If production issue, rollback via Vercel Dashboard (not git revert)
 
+---
+
+## First Production Testing Checklist
+
+Run these steps in order after first Vercel deployment succeeds.
+
+### Phase 1 — App Load & Credentials (browser)
+
+| # | Test | Expected | Pass |
+|---|------|----------|------|
+| 1.1 | Open production URL on fresh browser (empty localStorage) | See "Welcome to Aurora" hero, "Start setup" CTA | ⬜ |
+| 1.2 | Click "Start setup" → navigate to Settings | See SettingsHub with empty status badges | ⬜ |
+| 1.3 | Enter Supabase URL + Anon Key + Service Key + PAT, set passphrase (8+ chars), save | Badges update; credentials persist after refresh | ⬜ |
+| 1.4 | Close tab, re-open → Dashboard shows "Unlock to continue" | Passphrase not remembered across sessions | ⬜ |
+| 1.5 | Open Settings, enter passphrase, unlock | Dashboard shows real data or "Run Setup" prompt | ⬜ |
+| 1.6 | Enter wrong passphrase | See "Wrong passphrase" error | ⬜ |
+
+### Phase 2 — Supabase Setup (provisioning)
+
+| # | Test | Expected | Pass |
+|---|------|----------|------|
+| 2.1 | In Settings → Setup, click "Run setup" | Sequential progress: verify → migrate → secrets → edge-setup → bucket → edge-worker → cron | ⬜ |
+| 2.2 | Refresh mid-setup, re-run | Already-applied migrations skipped, continues from failure point | ⬜ |
+| 2.3 | Verify Supabase tables created | `content_briefs`, `posts`, `engagement_snapshots`, `jobs`, `system_events`, `brand_memory`, `strategy_recommendations`, `pages` exist | ⬜ |
+| 2.4 | Verify Edge Functions deployed | `aurora-worker` + `manage-setup` shown in Supabase Dashboard → Edge Functions | ⬜ |
+| 2.5 | Verify cron scheduled | `SELECT * FROM cron.job` shows `aurora-worker-every-minute` | ⬜ |
+
+### Phase 3 — Facebook Connection
+
+| # | Test | Expected | Pass |
+|---|------|----------|------|
+| 3.1 | Get long-lived Facebook page token (60 day) | Token from Facebook Graph API Explorer or App Dashboard | ⬜ |
+| 3.2 | Enter page token + page ID in Settings → Facebook | Facebook badge turns green | ⬜ |
+| 3.3 | Dashboard shows "Next 5 posts" section | Empty state with "Compose your first post" | ⬜ |
+
+### Phase 4 — AI Content Generation
+
+| # | Test | Expected | Pass |
+|---|------|----------|------|
+| 4.1 | Configure AI provider in Settings → LLM (API key + model) | LLM badge turns green | ⬜ |
+| 4.2 | Navigate to Compose, enter topic, click "Generate caption" | AI generates caption text | ⬜ |
+| 4.3 | Click "Generate image" (if image provider configured) | Image appears in preview | ⬜ |
+| 4.4 | Click "Save as draft" | Draft appears in Drafts page | ⬜ |
+
+### Phase 5 — Approval & Publishing
+
+| # | Test | Expected | Pass |
+|---|------|----------|------|
+| 5.1 | Navigate to Drafts page | See saved draft with "draft" status pill | ⬜ |
+| 5.2 | Click "Approve" on a draft | Toast "Draft approved!", status changes to "approved" | ⬜ |
+| 5.3 | Click "Reject" on a draft | ConfirmDialog appears; on confirm, toast "Draft rejected." | ⬜ |
+| 5.4 | Approve a draft + set future schedule | Brief appears "approved" → worker picks up at scheduled time | ⬜ |
+| 5.5 | Approve a draft with immediate schedule (Publish Now) | Brief published within 1 minute (cron interval) | ⬜ |
+| 5.6 | Verify post appears on Facebook page | Check Facebook Page → Posts | ⬜ |
+
+### Phase 6 — Worker Verification
+
+| # | Test | Expected | Pass |
+|---|------|----------|------|
+| 6.1 | Dashboard shows "Worker Status" card | Shows "Last run: X minutes ago", "Today: N runs" | ⬜ |
+| 6.2 | Wait 2-3 minutes after setup | `workerTodayRuns` increments by ~2-3 | ⬜ |
+| 6.3 | Worker runs `publish_due_posts` job | Approved briefs within schedule window get published | ⬜ |
+| 6.4 | Worker runs `capture_engagement` job | Engagement snapshots appear in DB after ~60 min | ⬜ |
+| 6.5 | Worker runs `plan_content` job | New draft briefs auto-generated (if `full_auto` mode) | ⬜ |
+
+### Phase 7 — Strategy & Analytics
+
+| # | Test | Expected | Pass |
+|---|------|----------|------|
+| 7.1 | Dashboard shows analytics (after posts exist) | Engagement charts, best hour, total likes/comments/shares | ⬜ |
+| 7.2 | Click "Analyze" in Strategy panel | AI-generated recommendations appear | ⬜ |
+| 7.3 | Dismiss a strategy recommendation | Recommendation disappears, stays dismissed on reload | ⬜ |
+
+### Phase 8 — Error Recovery
+
+| # | Test | Expected | Pass |
+|---|------|----------|------|
+| 8.1 | Revoke Facebook page token | Worker detects code 190, creates `facebook_token_expired` event | ⬜ |
+| 8.2 | Set incorrect AI API key | Strategy generation fails gracefully; cached recs returned if available | ⬜ |
+| 8.3 | Disconnect Supabase (change anon key) | App shows "Welcome" hero on next reload | ⬜ |
+| 8.4 | Reload with no passphrase in session | "Unlock to continue" shown | ⬜ |
+
+---
+
+## Known BYOB Limitations
+
+These are architectural consequences of the Bring-Your-Own-Backend model. They are NOT bugs — they are design trade-offs that a future SaaS migration would address.
+
+| Limitation | Impact | Why It Exists |
+|-----------|--------|---------------|
+| **Credentials stored in browser** | If user clears localStorage, all credentials are lost. Must re-enter. | BYOB — no server-side user accounts; we cannot store keys on our server |
+| **No multi-device sync** | Credentials are per-browser. Cannot use Aurora from two devices without re-entering on each. | No backend to sync credentials — they're encrypted in browser storage |
+| **No user accounts or auth** | Anyone with the browser URL can access the app (no login screen). Passphrase is the only gate. | BYOB — each user owns their Supabase project; no shared auth system |
+| **Setup runs from the browser** | Setup requires the user's Supabase PAT in the browser. If the PAT is exposed, the Supabase project is at risk. | Management API calls require PAT — no server-side relay exists yet |
+| **Worker Edge Function costs** | `pg_cron` runs every minute — the worker consumes Supabase Edge Function credits even when idle | The worker polls every minute for due jobs; no event-driven trigger exists |
+| **No server-side AI key storage** | AI API keys are stored in encrypted browser localStorage, sent to `/api/proxy` per-request. Not available to the `aurora-worker` Edge Function. | Worker runs on Supabase, not Vercel — it cannot read browser localStorage |
+| **Worker cannot auto-generate strategy** | Strategy generation requires AI keys which live on the client. Worker can only serve cached recommendations. | AI keys are user-owned; the worker runs in Supabase without access to them |
+| **No push notifications** | Token expiry, failed jobs, and other critical events are logged to DB but never notified to user. | No push infrastructure (no service worker, no email, no webhook) |
+| **No usage monitoring** | User must check Supabase Dashboard for Edge Function invocations, DB size, API usage. No in-app billing or limits. | BYOB — costs are on the user's Supabase project |
+| **Cron depends on pg_cron + pg_net** | If these Supabase extensions are unavailable (older projects, restricted plans), the worker never fires. Silent failure. | `pg_cron` and `pg_net` are not available on all Supabase plans |
+| **No automated backups** | If user loses encrypted localStorage keys (passphrase forgotten), all credentials are unrecoverable. | AES-GCM with PBKDF2 — designed to be unrecoverable without the passphrase |
+
+---
+
+## Migration Path to SaaS Credential Storage
+
+If Aurora evolves from BYOB to a SaaS model, these are the architectural changes needed:
+
+### Phase A — Server-Side Credential Relay (minimal infra)
+
+Replace browser-to-Supabase direct PAT usage with a thin relay:
+
+1. **Add a Vercel server route** (e.g., `/api/manage-setup`) that proxies Management API calls. The relay authenticates with a server-side PAT (Vercel env var), so the browser never sees the PAT.
+2. **Remove `supabasePAT` from browser SecretsSchema** — PAT now lives only on the server.
+3. **Update `setup-runner.ts`** to call `/api/manage-setup` instead of directly calling `api.supabase.com`.
+
+**Benefits:** PAT never touches browser. Setup can run even if user clears localStorage.
+
+### Phase B — Persistent Credential Storage
+
+Add encrypted credential storage on Vercel's KV/store so users don't re-enter on every device:
+
+1. **Add Vercel KV** (or Supabase Vault) for server-side encrypted credential storage.
+2. **Add a simple auth flow** (magic link or passphrase-based) to associate credentials with a device.
+3. **Proxy `/api/proxy`** reads credentials from KV instead of relying on the browser sending them.
+
+**Benefits:** Multi-device sync. Credentials survive browser localStorage clear.
+
+### Phase C — Full SaaS Auth & Billing
+
+Complete authentication and user management:
+
+1. **Add user accounts** (Supabase Auth or Auth0).
+2. **Provision child Supabase projects** per user (or use a shared backend with RLS).
+3. **Add billing** (Stripe) — free tier vs paid plans based on posts/month, AI calls, analytics retention.
+4. **Remove BYOB Settings entirely** — credentials are managed server-side.
+5. **Move `aurora-worker` to Vercel** as a serverless/cron function so it can read credentials from the server-side KV store without needing Supabase Edge Function secrets.
+
+**Benefits:** Full SaaS experience. No credential management for users. Usage limits, billing, and monitoring built-in.
+
 ### Status
 
 - **Vercel GitHub Integration:** Not yet connected — user must import repo via Vercel Dashboard

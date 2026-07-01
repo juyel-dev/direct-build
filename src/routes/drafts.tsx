@@ -97,7 +97,7 @@ function DraftsPage() {
         await approveMutation.mutateAsync(id);
         toast.success("Draft approved!");
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to approve");
+        toast.error(sanitizeError(e, "approve"));
       }
     },
     [approveMutation]

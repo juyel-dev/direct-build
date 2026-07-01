@@ -18,7 +18,7 @@ export const AURORA_WORKER_FUNCTION: EdgeFunctionBundle = {
   slug: "aurora-worker",
   name: "Aurora Worker",
   entrypointPath: "index.ts",
-  verifyJwt: true,
+  verifyJwt: false,
   files: [{ name: "index.ts", content: auroraWorkerSource }],
 };
 
