@@ -166,7 +166,9 @@ Browser localStorage (encrypted credentials)
 | Auth finalization | Migration 5 defaults | `user_id NOT NULL` enforced when no existing nulls; Migration 3's user-isolation is now the default path |
 | Cleanup | Dead imports removed | `logger` from setup-runner/ai.service; `AppError` from user-supabase; `subDays` from useAuroraQuery; `loadInstallStatus` from SetupCard/useCompose; `GlassPanel`/`GlassInput` from drafts; `ViewMode` from schedule; `isSameDay` from schedule.service; `toast` from compose |
 
-### Phase 4 ✅ — Facebook Growth Intelligence (In Progress)
+### Phase 4 ✅ — Facebook Growth Intelligence
+
+#### Brand Memory System ✅
 
 | Area | Change | Details |
 |------|--------|---------|
@@ -176,6 +178,20 @@ Browser localStorage (encrypted credentials)
 | Brand Memory System | Worker injection | `loadBrandMemory()` queries brand_memory per page; brand identity, style, tone, snippets injected into LLM brief generation prompt; `extract_brand_memory` recurring daily job |
 | Brand Memory System | Settings UI | `BrandMemorySheet` — view/edit descriptors, style, tone, hashtags, avoided topics; auto-extract button; shows top 3 content snippets with engagement scores |
 | Architecture | `PostRepository.findPublishedWithBriefs` | New method joining posts → content_briefs + engagement_snapshots for brand memory extraction |
+
+#### AI Content Strategy Foundation (Phase 4.1) ✅
+
+| Area | Change | Details |
+|------|--------|---------|
+| Strategy Recommendations | Migration 7 | `strategy_recommendations` table: page_id, recommendation_type (free-text), recommendation_text, reasoning, priority (1-10), related_content (jsonb), generated_at, status (active/dismissed/applied) |
+| Strategy Repository | `StrategyRepository` | `findByPage`, `insert`, `insertBatch`, `dismiss`, `loadInsights` — standard repository pattern |
+| Strategy Service | `StrategyService` | `analyzePage(pageId, llmConfig)` — fetches brand memory + strategy insights + 90 days of post history via `PostRepository.findPublishedWithBriefs`, builds structured LLM prompt with top/underperforming posts, parses JSON recommendations, persists to DB, dismisses old recs per type |
+| Strategy Service | `buildAnalysisPrompt` | Constructs a single LLM call combining brand context, strategy insights (best hour, avg score, best topics), and scored post data |
+| Strategy Service | `callLlm` | Uses `proxyFetch` (same as AiService) routing through `/api/proxy` for CORS-safe AI calls |
+| Strategy Service | `loadRecommendations(pageId)` | Loads active recommendations from DB for dashboard display |
+| Worker integration | `generate_strategy` job kind | Handler registered in worker switch statement (stub — actual API key lives on client); no cron activated |
+| UI | Dashboard strategy panel | Recommendations panel below worker status: loads existing recs on mount, "Analyze page" button calls `analyzePage`, shows recs grouped by type with priority, dismiss button |
+| Tests | Strategy service test | 4 tests covering data transformation: brand memory context injection in prompt, graceful empty-memory handling, average score computation, top/bottom post ranking |
 
 ---
 
@@ -190,6 +206,7 @@ src/
   ├── repositories/
   │   ├── base.ts                             # BaseRepository + withPagination()
   │   ├── brand-memory-repository.ts          # findByPageId, upsert, update
+  │   ├── strategy-repository.ts             # findByPage, insert, insertBatch, dismiss, loadInsights
   │   ├── brief-repository.ts                 # 12 methods
   │   ├── page-repository.ts
   │   ├── post-repository.ts
@@ -202,6 +219,7 @@ src/
  │   ├── supabase-factory.ts                 # Client factory (createUserClient)
   │   ├── auth-service.ts                     # Auth operations
   │   ├── brand-memory.service.ts             # Brand memory CRUD + auto-extract
+  │   ├── strategy.service.ts                # AI content strategy: analyzePage, buildAnalysisPrompt, callLlm
   │   ├── dashboard-service.ts                # Dashboard aggregation
  │   ├── ai/
  │   │   ├── ai.service.ts                   # AI text/image generation
@@ -305,11 +323,11 @@ Phase 4 focus: **Facebook Growth Intelligence**. Keep architecture flexible for 
 
 ### Priority Order
 
-1. **AI Content Strategy**
-   - Smarter content planning: use historical engagement data to suggest topics with highest predicted performance
-   - Performance-based suggestions: recommend post types (photo, text, link) based on past engagement per hour/day
-   - Brand voice improvement: analyze successful vs. underperforming posts to refine `default_brand_voice`; surface tone guidance in the compose UI
-   - Audience understanding: extract audience demographic signals from engagement patterns (best hours, content length preference)
+1. **AI Content Strategy** ✅
+   - Strategy recommendations: `strategy_recommendations` table, `StrategyRepository`, `StrategyService.analyzePage()`, `buildAnalysisPrompt`, `callLlm` via proxyFetch — **DONE**
+   - Worker integration: `generate_strategy` job kind registered (stub, no cron) — **DONE**
+   - Dashboard UI: strategy recommendations panel with "Analyze" button — **DONE**
+   - Tests: 4 tests covering data transformation and prompt building — **DONE**
 
 2. **Facebook Automation Improvements**
    - Smarter scheduling: honor timezone-aware windows; avoid scheduling during low-engagement hours detected by strategy insights
@@ -344,7 +362,7 @@ bun install           # Install dependencies
 bun run dev           # Start dev server
 bun run build         # Production build (Vercel preset)
 bun run tsc --noEmit  # TypeScript check (REQUIRED before commit)
-bun run test          # Run Vitest (51 tests: 33 original + 11 proxy-validation + 7 schedule.service)
+bun run test          # Run Vitest (55 tests)
 bun run test:watch    # Vitest in watch mode
 bun run lint          # ESLint
 bun run format        # Prettier

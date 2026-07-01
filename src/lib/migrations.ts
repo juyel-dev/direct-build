@@ -495,4 +495,58 @@ where id = 1;
 insert into public._migrations (id, name) values (6, 'brand_memory') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 7,
+    name: "strategy_recommendations",
+    sql: `
+-- Strategy recommendations: AI-generated suggestions for content strategy
+create table if not exists public.strategy_recommendations (
+  id uuid primary key default gen_random_uuid(),
+  page_id uuid not null references public.pages(id) on delete cascade,
+  recommendation_type text not null,
+  recommendation_text text not null,
+  reasoning text not null default '',
+  priority int not null default 0,
+  related_content jsonb not null default '[]'::jsonb,
+  generated_at timestamptz not null default now(),
+  status text not null default 'active' check (status in ('active','dismissed','applied'))
+);
+
+-- RLS
+alter table public.strategy_recommendations enable row level security;
+
+drop policy if exists "user_or_open" on public.strategy_recommendations;
+create policy "user_or_open" on public.strategy_recommendations
+  for all
+  using (
+    case when auth.uid() is not null then user_id = auth.uid() else true end
+  )
+  with check (
+    case when auth.uid() is not null then user_id = auth.uid() else true end
+  );
+
+-- User id column + trigger
+alter table public.strategy_recommendations add column if not exists user_id uuid references auth.users(id) on delete cascade;
+create index if not exists idx_strat_rec_page on public.strategy_recommendations (page_id, generated_at desc);
+create index if not exists idx_strat_rec_type on public.strategy_recommendations (page_id, recommendation_type);
+
+drop trigger if exists trg_set_user_id on public.strategy_recommendations;
+create trigger trg_set_user_id
+  before insert on public.strategy_recommendations
+  for each row
+  execute function public.set_user_id();
+
+-- Grants
+grant select, insert, update, delete on public.strategy_recommendations to anon, authenticated;
+grant all on public.strategy_recommendations to service_role;
+
+update public.app_settings
+set schema_version = 7,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('strategy_recommendations', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (7, 'strategy_recommendations') on conflict (id) do nothing;
+`,
+  },
 ];

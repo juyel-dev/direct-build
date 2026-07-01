@@ -123,6 +123,18 @@ export type StrategyInsight = {
   computed_at: string;
 };
 
+export type StrategyRecommendation = {
+  id: string;
+  page_id: string;
+  recommendation_type: string;
+  recommendation_text: string;
+  reasoning: string;
+  priority: number;
+  related_content: Json;
+  generated_at: string;
+  status: "active" | "dismissed" | "applied";
+};
+
 export type BrandMemory = {
   id: string;
   page_id: string;

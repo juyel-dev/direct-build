@@ -2,10 +2,14 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/AppShell";
 import { GlassCard, GlassPanel } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
-import { useMemo } from "react";
-import { loadBrand, loadInstallStatus, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
+import { useMemo, useState, useEffect } from "react";
+import { loadBrand, loadInstallStatus, getSessionPassphrase, hasStoredSecrets, loadProviders, loadSecrets } from "@/lib/config-store";
 import { useRealtime } from "@/hooks/useRealtime";
 import { useActivePageId, useDashboardData } from "@/hooks/useAuroraQuery";
+import { createUserClient } from "@/services/supabase-factory";
+import { StrategyService } from "@/services/strategy.service";
+import { buildLlmConfig } from "@/services/ai/providers/llm-providers";
+import type { StrategyRecommendation } from "@/types";
 import {
   SparklesIcon,
   ArrowRightIcon,
@@ -17,6 +21,8 @@ import {
   ChatBubbleLeftIcon,
   ShareIcon,
   CpuChipIcon,
+  LightBulbIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { format } from "date-fns";
 
@@ -43,6 +49,50 @@ function Dashboard() {
   const { data, isLoading, error } = useDashboardData();
   const briefs = data?.briefs ?? [];
   const stats = data?.stats ?? null;
+
+  const [recommendations, setRecommendations] = useState<StrategyRecommendation[]>([]);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [dismissedTypes, setDismissedTypes] = useState<Set<string>>(new Set());
+
+  async function handleAnalyze() {
+    if (!pageId) return;
+    setAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const sb = await createUserClient();
+      if (!sb) { setAnalysisError("Unlock your vault first."); return; }
+      const pass = getSessionPassphrase();
+      const secrets = pass ? await loadSecrets(pass) : null;
+      const apiKey = secrets?.aiApiKey ?? "";
+      if (!apiKey) { setAnalysisError("No AI API key configured."); return; }
+      const providers = loadProviders();
+      const config = buildLlmConfig(
+        providers.llm.type,
+        providers.llm.model || "meta-llama/llama-3.3-70b-instruct:free",
+        providers.llm.baseUrl,
+        apiKey,
+      );
+      const svc = new StrategyService(sb);
+      const recs = await svc.analyzePage(pageId, config);
+      setRecommendations(recs);
+    } catch (e) {
+      setAnalysisError(e instanceof Error ? e.message : "Analysis failed");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!pageId) return;
+    (async () => {
+      const sb = await createUserClient();
+      if (!sb) return;
+      const svc = new StrategyService(sb);
+      const recs = await svc.loadRecommendations(pageId);
+      setRecommendations(recs);
+    })();
+  }, [pageId]);
 
   if (!hasCreds) {
     return (
@@ -143,6 +193,70 @@ function Dashboard() {
             </span>
           </div>
         </div>
+      </GlassCard>
+
+      <GlassCard className="p-5 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <LightBulbIcon className="h-5 w-5 text-accent" />
+            <h2 className="text-sm font-semibold">Strategy Recommendations</h2>
+          </div>
+          <GlassButton
+            size="sm"
+            variant="subtle"
+            loading={analyzing}
+            onClick={handleAnalyze}
+          >
+            <SparklesIcon className="h-3.5 w-3.5" /> Analyze page
+          </GlassButton>
+        </div>
+        {analysisError && (
+          <p className="text-xs text-destructive mb-2">{analysisError}</p>
+        )}
+        {recommendations.length === 0 && !analyzing && !analysisError && (
+          <p className="text-xs text-muted-foreground">
+            Click "Analyze page" to get AI-powered content strategy suggestions based on your brand memory and post performance.
+          </p>
+        )}
+        {recommendations
+          .filter((r) => !dismissedTypes.has(r.recommendation_type))
+          .slice(0, 5)
+          .map((rec) => {
+            const typeColors: Record<string, string> = {
+              topic: "border-l-accent",
+              hook: "border-l-primary",
+              timing: "border-l-warning",
+              brand_voice: "border-l-success",
+              content_angle: "border-l-[oklch(0.70_0.20_320)]",
+            };
+            return (
+              <div
+                key={rec.id}
+                className={`border-l-2 ${typeColors[rec.recommendation_type] ?? "border-l-white/20"} pl-3 py-2 mt-2 group`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        {rec.recommendation_type}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/60">
+                        priority {rec.priority}/10
+                      </span>
+                    </div>
+                    <p className="text-sm mt-0.5">{rec.recommendation_text}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{rec.reasoning}</p>
+                  </div>
+                  <button
+                    onClick={() => setDismissedTypes(new Set(dismissedTypes).add(rec.recommendation_type))}
+                    className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <XMarkIcon className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
       </GlassCard>
 
       <div className="grid gap-6 lg:grid-cols-3">

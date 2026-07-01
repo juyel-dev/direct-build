@@ -1,0 +1,186 @@
+import { SupabaseClient } from "@supabase/supabase-js";
+import { BaseService } from "./base";
+import { StrategyRepository } from "../repositories/strategy-repository";
+import { BrandMemoryService } from "./brand-memory.service";
+import { PostRepository } from "../repositories/post-repository";
+import { proxyFetch } from "../lib/proxy-fetch";
+import type { StrategyRecommendation, BrandMemory } from "../types";
+
+export type LlmConfig = {
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+};
+
+type PostWithMetrics = {
+  content_briefs?: { topic?: string; caption?: string; hashtags?: string[] };
+  engagement_snapshots?: Array<{ likes?: number; comments?: number; shares?: number; captured_at?: string }>;
+  published_at?: string;
+};
+
+export class StrategyService extends BaseService {
+  private repo: StrategyRepository;
+  private brandMemory: BrandMemoryService;
+  private posts: PostRepository;
+
+  constructor(client: SupabaseClient) {
+    super("StrategyService");
+    this.repo = new StrategyRepository(client);
+    this.brandMemory = new BrandMemoryService(client);
+    this.posts = new PostRepository(client);
+  }
+
+  async loadRecommendations(pageId: string): Promise<StrategyRecommendation[]> {
+    return this.repo.findByPage(pageId);
+  }
+
+  async analyzePage(pageId: string, llm: LlmConfig): Promise<StrategyRecommendation[]> {
+    const [memory, insights, rawPosts] = await Promise.all([
+      this.brandMemory.load(pageId),
+      this.repo.loadInsights(pageId),
+      this.loadPostHistory(pageId),
+    ]);
+
+    const prompt = this.buildAnalysisPrompt(memory, insights, rawPosts);
+    const recommendations = await this.callLlm(prompt, llm);
+
+    await this.repo.dismiss(pageId, "content_strategy");
+    for (const rec of recommendations) {
+      await this.repo.insert({
+        page_id: pageId,
+        recommendation_type: rec.recommendation_type ?? "content_strategy",
+        recommendation_text: rec.recommendation_text ?? "",
+        reasoning: rec.reasoning ?? "",
+        priority: rec.priority ?? 0,
+        related_content: rec.related_content ?? [],
+      });
+    }
+
+    return this.repo.findByPage(pageId);
+  }
+
+  private async loadPostHistory(pageId: string): Promise<PostWithMetrics[]> {
+    const since = new Date(Date.now() - 90 * 86400_000).toISOString();
+    return this.posts.findPublishedWithBriefs(pageId, since) as Promise<PostWithMetrics[]>;
+  }
+
+  private buildAnalysisPrompt(
+    memory: BrandMemory | null,
+    insights: Record<string, unknown>,
+    posts: PostWithMetrics[],
+  ): string {
+    const scoredPosts = posts
+      .map((p) => {
+        const snaps = p.engagement_snapshots ?? [];
+        const latest = snaps[snaps.length - 1] ?? {};
+        const score = (latest.likes ?? 0) + (latest.comments ?? 0) * 2 + (latest.shares ?? 0) * 3;
+        return {
+          topic: p.content_briefs?.topic ?? "",
+          caption: (p.content_briefs?.caption ?? "").slice(0, 200),
+          likes: latest.likes ?? 0,
+          comments: latest.comments ?? 0,
+          shares: latest.shares ?? 0,
+          score,
+          published_at: p.published_at,
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    const topPosts = scoredPosts.slice(0, 10);
+    const bottomPosts = scoredPosts.filter((p) => p.score > 0).slice(-5);
+    const totalEngagement = scoredPosts.reduce((a, p) => a + p.score, 0);
+    const avgScore = scoredPosts.length ? Math.round(totalEngagement / scoredPosts.length) : 0;
+
+    const brandContext = memory
+      ? [
+          memory.brand_descriptors.length ? `Brand identity: ${memory.brand_descriptors.join(", ")}.` : "",
+          memory.writing_style_notes ? `Style: ${memory.writing_style_notes}.` : "",
+          memory.tone_guidelines ? `Tone: ${memory.tone_guidelines}.` : "",
+          memory.effective_hashtags.length ? `Top hashtags: ${memory.effective_hashtags.join(", ")}.` : "",
+          memory.avoided_topics.length ? `Avoid: ${memory.avoided_topics.join(", ")}.` : "",
+        ].filter(Boolean).join(" ")
+      : "No brand memory yet.";
+
+    const hours = scoredPosts
+      .filter((p) => p.published_at)
+      .map((p) => new Date(p.published_at!).getUTCHours());
+    const hourCounts = new Map<number, number>();
+    for (const h of hours) hourCounts.set(h, (hourCounts.get(h) ?? 0) + 1);
+    const bestHour = Array.from(hourCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+    return JSON.stringify({
+      task: "Analyze this Facebook page's content performance and generate 3-5 strategic recommendations.",
+      brand: brandContext,
+      strategy_insights: {
+        best_posting_hour: insights.best_posting_hour ?? bestHour,
+        best_topics: insights.best_topics ?? [],
+        avg_engagement_rate: insights.avg_engagement_rate ?? null,
+        average_post_score: avgScore,
+      },
+      top_performing_posts: topPosts.map((p) => ({
+        topic: p.topic,
+        caption: p.caption,
+        likes: p.likes,
+        comments: p.comments,
+        shares: p.shares,
+        score: p.score,
+      })),
+      underperforming_posts: bottomPosts.map((p) => ({
+        topic: p.topic,
+        caption: p.caption,
+        score: p.score,
+      })),
+      requirements: [
+        "Return ONLY valid JSON. No markdown, no code fences.",
+        'Format: {"recommendations":[{"recommendation_type":"topic|hook|timing|brand_voice|content_angle","recommendation_text":"clear actionable suggestion","reasoning":"why this helps the page grow","priority":1-10,"related_content":[{"type":"example","text":"supporting detail"}]}]}',
+        "recommendation_type must be one of: topic, hook, timing, brand_voice, content_angle",
+        "Priority 10 = most important. Priority 1 = nice to have.",
+        "Base suggestions on actual data from top and underperforming posts.",
+        "If brand memory exists, ensure suggestions align with brand identity, tone, and style.",
+        "If brand memory is empty, suggest setting up brand descriptors.",
+      ],
+    });
+  }
+
+  private async callLlm(
+    prompt: string,
+    llm: LlmConfig,
+  ): Promise<Array<{
+    recommendation_type: string;
+    recommendation_text: string;
+    reasoning: string;
+    priority: number;
+    related_content?: Array<{ type: string; text: string }>;
+  }>> {
+    const r = await proxyFetch(`${llm.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${llm.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: llm.model,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a Facebook content strategy analyst. Return ONLY valid JSON. No markdown, no code fences.",
+          },
+          { role: "user", content: prompt },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+      }),
+    });
+
+    if (!r.ok) {
+      const body = await r.text().catch(() => "");
+      throw new Error(`Strategy AI call failed (${r.status}): ${body.slice(0, 200)}`);
+    }
+
+    const data = await r.json<{ choices?: { message?: { content?: string } }[] }>();
+    const content = data.choices?.[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
+  }
+}

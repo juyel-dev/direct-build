@@ -240,6 +240,8 @@ async function processJob(job: Job, pages: Page[]) {
       detail = await computeStrategy(page, Number(job.payload.window_days ?? 30));
     else if (job.kind === "extract_brand_memory")
       detail = await extractBrandMemory(page);
+    else if (job.kind === "generate_strategy")
+      detail = await generateStrategy(page);
     else detail = `Unknown job kind "${job.kind}" skipped.`;
     clearInterval(heartbeatTimer);
     await completeJob(job, "succeeded", detail);
@@ -723,6 +725,10 @@ async function extractBrandMemory(page: Page) {
 
   if (upsertError) throw upsertError;
   return `Extracted brand memory from ${posts.length} posts.`;
+}
+
+async function generateStrategy(page: Page) {
+  return `Strategy generation skeleton ready. Invoke via frontend StrategyService.analyzePage().`;
 }
 
 async function completeJob(job: Job, status: string, detail: string) {
