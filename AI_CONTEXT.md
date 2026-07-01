@@ -166,6 +166,17 @@ Browser localStorage (encrypted credentials)
 | Auth finalization | Migration 5 defaults | `user_id NOT NULL` enforced when no existing nulls; Migration 3's user-isolation is now the default path |
 | Cleanup | Dead imports removed | `logger` from setup-runner/ai.service; `AppError` from user-supabase; `subDays` from useAuroraQuery; `loadInstallStatus` from SetupCard/useCompose; `GlassPanel`/`GlassInput` from drafts; `ViewMode` from schedule; `isSameDay` from schedule.service; `toast` from compose |
 
+### Phase 4 ✅ — Facebook Growth Intelligence (In Progress)
+
+| Area | Change | Details |
+|------|--------|---------|
+| Brand Memory System | Migration 6 | `brand_memory` table: page_id, brand_descriptors, audience_profile, writing_style_notes, effective_hashtags, top_content_snippets, tone_guidelines, avoided_topics; unique per page_id |
+| Brand Memory System | `BrandMemoryRepository` | `findByPageId`, `upsert`, `update` — standard repository pattern |
+| Brand Memory System | `BrandMemoryService` | `load`, `save`, `buildLlmContext` (builds prompt context string), `autoExtract` (analyzes 90 days of published posts for tone, hashtags, top content) |
+| Brand Memory System | Worker injection | `loadBrandMemory()` queries brand_memory per page; brand identity, style, tone, snippets injected into LLM brief generation prompt; `extract_brand_memory` recurring daily job |
+| Brand Memory System | Settings UI | `BrandMemorySheet` — view/edit descriptors, style, tone, hashtags, avoided topics; auto-extract button; shows top 3 content snippets with engagement scores |
+| Architecture | `PostRepository.findPublishedWithBriefs` | New method joining posts → content_briefs + engagement_snapshots for brand memory extraction |
+
 ---
 
 ## File Manifest (All Source Files)
@@ -176,20 +187,22 @@ src/
  ├── logger/index.ts                         # Structured logging + createLogger()
  ├── errors/index.ts                         # Error hierarchy + RateLimitError
  ├── validators/index.ts                     # Zod schemas (11 exported)
- ├── repositories/
- │   ├── base.ts                             # BaseRepository + withPagination()
- │   ├── brief-repository.ts                 # 12 methods
- │   ├── page-repository.ts
- │   ├── post-repository.ts
- │   ├── engagement-repository.ts
- │   ├── system-event-repository.ts
- │   └── usage-repository.ts
+  ├── repositories/
+  │   ├── base.ts                             # BaseRepository + withPagination()
+  │   ├── brand-memory-repository.ts          # findByPageId, upsert, update
+  │   ├── brief-repository.ts                 # 12 methods
+  │   ├── page-repository.ts
+  │   ├── post-repository.ts
+  │   ├── engagement-repository.ts
+  │   ├── system-event-repository.ts
+  │   └── usage-repository.ts
  ├── services/
  │   ├── base.ts                             # BaseService with logging
  │   ├── index.ts                            # Service exports
  │   ├── supabase-factory.ts                 # Client factory (createUserClient)
- │   ├── auth-service.ts                     # Auth operations
- │   ├── dashboard-service.ts                # Dashboard aggregation
+  │   ├── auth-service.ts                     # Auth operations
+  │   ├── brand-memory.service.ts             # Brand memory CRUD + auto-extract
+  │   ├── dashboard-service.ts                # Dashboard aggregation
  │   ├── ai/
  │   │   ├── ai.service.ts                   # AI text/image generation
  │   │   └── providers/llm-providers.ts      # Provider base URLs
@@ -310,11 +323,11 @@ Phase 4 focus: **Facebook Growth Intelligence**. Keep architecture flexible for 
    - Engagement analysis: breakdown by day-of-week, hour, post type; heatmap visualization
    - Actionable recommendations: "Post on Tuesdays at 10AM for 40% higher engagement" — surfaced directly on dashboard
 
-4. **Brand Memory System**
-   - Build a `brand_memory` table storing: page identity descriptors, audience profile, top-performing content snippets, writing style samples
-   - Worker reads brand memory when generating briefs (inject into LLM context)
-   - UI page in Settings → Brand Profile to review/edit what the AI remembers
-   - Auto-extract from successful posts: tone, length, common phrases, effective hashtags
+4. **Brand Memory System** ✅
+   - Build a `brand_memory` table storing: page identity descriptors, audience profile, top-performing content snippets, writing style samples — **DONE**
+   - Worker reads brand memory when generating briefs (inject into LLM context) — **DONE**
+   - UI page in Settings → Brand Profile to review/edit what the AI remembers — **DONE** (`BrandMemorySheet`)
+   - Auto-extract from successful posts: tone, length, common phrases, effective hashtags — **DONE** (daily recurring job + manual button)
 
 5. **User Proof / SaaS Readiness**
    - Reports: weekly/monthly PDF/CSV export of content performance, growth metrics, publishing activity
