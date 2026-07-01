@@ -6,6 +6,8 @@ import { FacebookPreview } from "@/components/facebook/FacebookPreview";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useMemo, useState, useCallback, useEffect, memo } from "react";
 import { loadBrand, loadInstallStatus, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
+import { sanitizeError } from "@/lib/user-error";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   useDrafts,
   useApproveDraft,
@@ -58,6 +60,8 @@ function DraftsPage() {
 
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmRejectId, setConfirmRejectId] = useState<string | null>(null);
+  const [confirmBulkReject, setConfirmBulkReject] = useState(false);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return drafts;
@@ -101,15 +105,21 @@ function DraftsPage() {
 
   const handleReject = useCallback(
     async (id: string) => {
-      try {
-        await rejectMutation.mutateAsync(id);
-        toast.info("Draft rejected.");
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to reject");
-      }
+      setConfirmRejectId(id);
     },
-    [rejectMutation]
+    []
   );
+
+  const confirmReject = useCallback(async () => {
+    if (!confirmRejectId) return;
+    try {
+      await rejectMutation.mutateAsync(confirmRejectId);
+      toast.info("Draft rejected.");
+    } catch (e) {
+      toast.error(sanitizeError(e, "reject"));
+    }
+    setConfirmRejectId(null);
+  }, [confirmRejectId, rejectMutation]);
 
   const handleBulkApprove = useCallback(async () => {
     if (selected.size === 0) return;
@@ -118,19 +128,25 @@ function DraftsPage() {
       toast.success(`${selected.size} drafts approved!`);
       setSelected(new Set());
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to bulk approve");
+      toast.error(sanitizeError(e, "approve"));
     }
   }, [selected, bulkApproveMutation]);
 
   const handleBulkReject = useCallback(async () => {
+    if (selected.size === 0) return;
+    setConfirmBulkReject(true);
+  }, [selected]);
+
+  const confirmBulkRejectAction = useCallback(async () => {
     if (selected.size === 0) return;
     try {
       await bulkRejectMutation.mutateAsync(Array.from(selected));
       toast.info(`${selected.size} drafts rejected.`);
       setSelected(new Set());
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to bulk reject");
+      toast.error(sanitizeError(e, "reject"));
     }
+    setConfirmBulkReject(false);
   }, [selected, bulkRejectMutation]);
 
   // Keyboard shortcuts
@@ -193,7 +209,7 @@ function DraftsPage() {
 
       {error && (
         <GlassCard className="p-4 mb-6 border-destructive/30">
-          <p className="text-sm text-destructive">{error.message}</p>
+          <p className="text-sm text-destructive">{sanitizeError(error, "save")}</p>
         </GlassCard>
       )}
 
@@ -263,6 +279,24 @@ function DraftsPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmRejectId !== null}
+        onOpenChange={(o) => { if (!o) setConfirmRejectId(null); }}
+        title="Reject this draft?"
+        description="You cannot publish it unless recreated."
+        confirmLabel="Reject"
+        onConfirm={confirmReject}
+      />
+
+      <ConfirmDialog
+        open={confirmBulkReject}
+        onOpenChange={(o) => { if (!o) setConfirmBulkReject(false); }}
+        title={`Reject ${selected.size} drafts?`}
+        description="These drafts cannot be published unless recreated."
+        confirmLabel={`Reject ${selected.size}`}
+        onConfirm={confirmBulkRejectAction}
+      />
     </AppShell>
   );
 }

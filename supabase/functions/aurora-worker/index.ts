@@ -249,11 +249,12 @@ async function processJob(job: Job, pages: Page[]) {
     return { id: job.id, kind: job.kind, ok: true, detail };
   } catch (error) {
     clearInterval(heartbeatTimer);
-    const terminal = job.attempts >= job.max_attempts;
     const detail = messageOf(error);
+    const isTokenExpired = detail.startsWith("TOKEN_EXPIRED:");
+    const terminal = isTokenExpired || job.attempts >= job.max_attempts;
     await completeJob(job, terminal ? "failed_terminal" : "failed_retryable", detail);
     log("warn", terminal ? "Job failed terminal" : "Job failed retryable", {
-      job_id: job.id, kind: job.kind, attempts: job.attempts, error: detail,
+      job_id: job.id, kind: job.kind, attempts: job.attempts, error: detail, token_expired: isTokenExpired,
     });
     return { id: job.id, kind: job.kind, ok: false, error: detail };
   }
@@ -506,7 +507,28 @@ async function publishBrief(page: Page, brief: Brief, token: string) {
   const response = await fetchWithTimeout(endpoint, { method: "POST", body, timeout: 15_000 });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || result.error) {
+    const errorCode = result.error?.code ?? result.error?.error_code;
     const errorText = result.error?.message ?? JSON.stringify(result).slice(0, 200);
+
+    if (errorCode === 190) {
+      log("error", "facebook_token_expired", { message: errorText.slice(0, 200) });
+      await supabase.from("system_events").insert({
+        severity: "error",
+        category: "facebook_token_expired",
+        message: "Facebook page token has expired. Go to Settings → Facebook page → Test Facebook to update.",
+        metadata: { page_id: page.id, page_name: page.fb_page_name },
+      });
+      await supabase
+        .from("posts")
+        .update({ status: "failed", last_error: "Facebook token expired. Update in Settings." })
+        .eq("idempotency_key", idempotencyKey);
+      await supabase
+        .from("content_briefs")
+        .update({ status: "failed", updated_at: new Date().toISOString() })
+        .eq("id", brief.id);
+      throw new Error("TOKEN_EXPIRED: Facebook token expired. Update in Settings → Facebook page.");
+    }
+
     await recordProviderFailure("facebook", `Publish ${response.status}: ${errorText}`);
     await supabase
       .from("posts")

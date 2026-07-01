@@ -8,6 +8,7 @@ import { createUserClient } from "../services/supabase-factory";
 import { PublishingService } from "../services/publishing/publishing.service";
 import { AiService } from "../services/ai/ai.service";
 import { loadBrand, loadProviders, getSessionPassphrase, loadSecrets } from "../lib/config-store";
+import { sanitizeError } from "../lib/user-error";
 import { buildLlmConfig } from "../services/ai/providers/llm-providers";
 
 const ComposeSchema = z.object({
@@ -194,8 +195,9 @@ export function useCompose(briefId?: string) {
           setImageUrl(null);
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        toast.error(e instanceof Error ? e.message : "Failed to save");
+        const msg = sanitizeError(e, "compose");
+        setError(msg);
+        toast.error(msg);
       } finally {
         setSaving(false);
       }

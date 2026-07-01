@@ -188,8 +188,6 @@ export class StrategyService extends BaseService {
       throw e;
     }
 
-    await this.repo.dismissAll(pageId);
-
     const batch = recommendations.map((rec) => ({
       page_id: pageId,
       recommendation_type: rec.recommendation_type ?? "content_strategy",
@@ -199,6 +197,8 @@ export class StrategyService extends BaseService {
       related_content: rec.related_content ?? [],
     }));
     await this.repo.insertBatch(batch);
+
+    await this.repo.dismissAll(pageId);
 
     return this.repo.findByPage(pageId);
   }

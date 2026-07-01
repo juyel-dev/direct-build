@@ -7,6 +7,7 @@ import { FacebookPreview } from "@/components/facebook/FacebookPreview";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useCompose } from "@/hooks/useCompose";
 import { loadInstallStatus, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
+import { useRef } from "react";
 import {
   SparklesIcon,
   PhotoIcon,
@@ -59,6 +60,7 @@ function ComposePage() {
     saveBrief,
   } = useCompose(briefId);
 
+  const publishMode = useRef<"now" | "schedule">("schedule");
   const pass = getSessionPassphrase();
   if (!pass || !hasStoredSecrets()) {
     return (
@@ -103,7 +105,8 @@ function ComposePage() {
         </GlassCard>
       )}
 
-      <form onSubmit={handleSubmit(() => saveBrief("approved", false))} className="grid gap-6 lg:grid-cols-5">
+
+      <form onSubmit={handleSubmit(() => saveBrief("approved", publishMode.current === "now"))} className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-3 space-y-5">
           <GlassCard className="p-5">
             <GlassLabel hint="What is this post about?" htmlFor="topic">Topic</GlassLabel>
@@ -245,10 +248,10 @@ function ComposePage() {
 
           <div className="flex flex-col gap-3">
             <GlassButton
-              type="button"
+              type="submit"
               variant="primary"
               size="lg"
-              onClick={() => saveBrief("approved", true)}
+              onClick={() => { publishMode.current = "now"; }}
               disabled={saving || (!caption?.trim() && !watch("topic")?.trim())}
             >
               {saving ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : <PaperAirplaneIcon className="h-4 w-4" />}
@@ -258,6 +261,7 @@ function ComposePage() {
               type="submit"
               variant="secondary"
               size="lg"
+              onClick={() => { publishMode.current = "schedule"; }}
               disabled={saving || (!caption?.trim() && !watch("topic")?.trim())}
             >
               <CalendarDaysIcon className="h-4 w-4" />

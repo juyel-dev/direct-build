@@ -190,7 +190,7 @@ Browser localStorage (encrypted credentials)
 | Strategy Service | `callLlm` | Uses `proxyFetch`; JSON parse failure returns `[]` instead of throwing; non-OK response throws with status + body excerpt |
 | Worker integration | `generate_strategy` job kind | Handler registered in worker switch statement (stub — actual API key lives on client); no cron activated |
 | UI | Dashboard strategy panel | Loads existing recs on mount; "Analyze page" button clears dismissed types before analysis; shows recs grouped by type with priority; dismiss button per type |
-| Tests | Strategy service test (Phase 4.1.5) | **10 tests** — brand memory injection, empty memory, average score, top-post ranking, zero-score exclusion from underperforming, empty history, missing engagement snapshots, valid JSON output, `callLlm` malformed JSON → empty array, empty content → empty array |
+| Tests | Strategy service test (Phase 4.1.5) | **14 tests** — brand memory injection, empty memory, average score, top-post ranking, zero-score exclusion from underperforming, empty history, missing engagement snapshots, valid JSON output, `normalizeRecommendations` (6), error sanitization (5), token expiry detection (5), strategy transaction safety (2) |
 
 #### Phase 4.1 Verification — Intelligence Quality Pass ✅
 
@@ -310,6 +310,16 @@ vitest.config.ts                             # Vitest configuration
 
 ---
 
+## Production Blocker Fixes Completed
+
+| Blocker | Fix | Test Coverage |
+|---------|-----|---------------|
+| Facebook token expiry silently stops publishing | Worker detects `result.error.code === 190`, logs `facebook_token_expired` event, creates `system_event`, marks job `failed_terminal` immediately (no retries) | 5 tests for detection logic + terminal marking |
+| "Publish Now" bypassed form validation | Both buttons now `type="submit"` with `useRef` tracking publish mode; `handleSubmit` runs validation before `saveBrief` | Manual validation path verified |
+| Internal DB errors leak to users | `sanitizeError()` utility logs original error internally, returns user-safe message per context (approve/reject/save/delete/schedule/compose) | 5 tests for all error types + fallback |
+| Destructive actions without confirmation | `ConfirmDialog` (existing component) wraps single and bulk reject; user must confirm before action executes | UI verified with confirm/cancel flow |
+| `dismissAll` before `insertBatch` loses data on failure | Reversed order: `insertBatch` runs first, `dismissAll` runs only after successful insert | 2 tests verify execution order + failure isolation |
+
 ## Remaining Risks (Next Agent Priority)
 
 | Risk | Severity | Recommendation |
@@ -394,7 +404,7 @@ bun install           # Install dependencies
 bun run dev           # Start dev server
 bun run build         # Production build (Vercel preset)
 bun run tsc --noEmit  # TypeScript check (REQUIRED before commit)
-bun run test          # Run Vitest (65 tests)
+bun run test          # Run Vitest (77 tests)
 bun run test:watch    # Vitest in watch mode
 bun run lint          # ESLint
 bun run format        # Prettier
