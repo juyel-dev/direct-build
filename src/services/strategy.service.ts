@@ -42,6 +42,36 @@ export type AnalysisPrompt = {
   requirements: string[];
 };
 
+export type RawRecommendation = {
+  recommendation_type?: unknown;
+  recommendation_text?: unknown;
+  reasoning?: unknown;
+  priority?: unknown;
+  related_content?: unknown;
+};
+
+export type ValidRecommendation = {
+  recommendation_type: string;
+  recommendation_text: string;
+  reasoning: string;
+  priority: number;
+  related_content?: Array<{ type: string; text: string }>;
+};
+
+export function normalizeRecommendations(raw: unknown[]): ValidRecommendation[] {
+  return raw.filter((r): r is ValidRecommendation =>
+    r != null &&
+    typeof (r as RawRecommendation).recommendation_type === "string" &&
+    typeof (r as RawRecommendation).recommendation_text === "string"
+  ).map((r) => ({
+    recommendation_type: r.recommendation_type,
+    recommendation_text: r.recommendation_text,
+    reasoning: typeof (r as any).reasoning === "string" ? (r as any).reasoning : "",
+    priority: typeof (r as any).priority === "number" ? (r as any).priority : 0,
+    related_content: Array.isArray((r as any).related_content) ? (r as any).related_content : [],
+  }));
+}
+
 export function buildAnalysisPrompt(
   memory: BrandMemory | null,
   insights: Record<string, unknown>,
@@ -143,8 +173,20 @@ export class StrategyService extends BaseService {
       this.loadPostHistory(pageId),
     ]);
 
+    const existing = await this.repo.findByPage(pageId);
+
     const prompt = buildAnalysisPrompt(memory, insights, rawPosts);
-    const recommendations = await this.callLlm(prompt, llm);
+    let recommendations;
+    try {
+      recommendations = await this.callLlm(prompt, llm);
+    } catch (e) {
+      this.log("error", "AI strategy analysis failed, falling back to cached", {
+        error: e instanceof Error ? e.message : String(e),
+        page_id: pageId,
+      });
+      if (existing.length > 0) return existing;
+      throw e;
+    }
 
     await this.repo.dismissAll(pageId);
 
@@ -176,6 +218,8 @@ export class StrategyService extends BaseService {
     priority: number;
     related_content?: Array<{ type: string; text: string }>;
   }>> {
+    this.log("info", "Calling strategy AI", { model: llm.model, prompt_length: prompt.length });
+
     const r = await proxyFetch(`${llm.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
@@ -199,6 +243,7 @@ export class StrategyService extends BaseService {
 
     if (!r.ok) {
       const body = await r.text().catch(() => "");
+      this.log("error", "Strategy AI call failed", { status: r.status });
       throw new Error(`Strategy AI call failed (${r.status}): ${body.slice(0, 200)}`);
     }
 
@@ -209,9 +254,25 @@ export class StrategyService extends BaseService {
     try {
       parsed = JSON.parse(content);
     } catch {
+      this.log("warn", "Strategy AI returned invalid JSON", { content: content.slice(0, 200) });
       return [];
     }
 
-    return Array.isArray(parsed.recommendations) ? (parsed.recommendations as Array<any>) : [];
+    if (!Array.isArray(parsed.recommendations)) {
+      this.log("warn", "Strategy AI response missing recommendations array", { keys: Object.keys(parsed) });
+      return [];
+    }
+
+    const valid = normalizeRecommendations(parsed.recommendations);
+
+    if (valid.length < parsed.recommendations.length) {
+      this.log("warn", "Filtered invalid recommendations", {
+        total: parsed.recommendations.length,
+        valid: valid.length,
+      });
+    }
+
+    this.log("info", "Strategy AI call succeeded", { recommendations: valid.length });
+    return valid;
   }
 }

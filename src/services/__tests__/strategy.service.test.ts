@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildAnalysisPrompt, StrategyService } from "../strategy.service";
+import { buildAnalysisPrompt, normalizeRecommendations } from "../strategy.service";
 import type { BrandMemory } from "@/types";
 
 describe("buildAnalysisPrompt", () => {
@@ -118,24 +118,51 @@ describe("buildAnalysisPrompt", () => {
   });
 });
 
-describe("StrategyService error handling", () => {
-  it("callLlm returns empty array on malformed JSON content", async () => {
-    const sb = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ order: () => ({ order: () => Promise.resolve({ data: [], error: null }) }) }) }) }) }) } as any;
-
-    const svc = new StrategyService(sb);
-    (svc as any).callLlm = async () => [];
-
-    const result = await (svc as any).callLlm("{}", { baseUrl: "", model: "", apiKey: "" });
-    expect(result).toEqual([]);
+describe("normalizeRecommendations", () => {
+  it("filters out null items", () => {
+    expect(normalizeRecommendations([null, undefined]).length).toBe(0);
   });
 
-  it("callLlm returns empty array when content is empty string", async () => {
-    let parsed: any;
-    try {
-      parsed = JSON.parse("");
-    } catch {
-      parsed = { recommendations: [] };
-    }
-    expect(Array.isArray(parsed.recommendations)).toBe(true);
+  it("filters out items missing recommendation_type", () => {
+    const result = normalizeRecommendations([
+      { recommendation_text: "text", recommendation_type: undefined },
+    ]);
+    expect(result.length).toBe(0);
+  });
+
+  it("filters out items missing recommendation_text", () => {
+    const result = normalizeRecommendations([
+      { recommendation_type: "topic", recommendation_text: null },
+    ]);
+    expect(result.length).toBe(0);
+  });
+
+  it("fills defaults for missing optional fields", () => {
+    const result = normalizeRecommendations([
+      { recommendation_type: "topic", recommendation_text: "Post more" },
+    ]);
+    expect(result.length).toBe(1);
+    expect(result[0].reasoning).toBe("");
+    expect(result[0].priority).toBe(0);
+    expect(result[0].related_content).toEqual([]);
+  });
+
+  it("preserves valid recommendations unchanged", () => {
+    const result = normalizeRecommendations([
+      {
+        recommendation_type: "timing",
+        recommendation_text: "Post at 10am",
+        reasoning: "Higher engagement",
+        priority: 8,
+        related_content: [{ type: "example", text: "Last post at 10am got 50 likes" }],
+      },
+    ]);
+    expect(result.length).toBe(1);
+    expect(result[0].recommendation_type).toBe("timing");
+    expect(result[0].priority).toBe(8);
+  });
+
+  it("handles empty array", () => {
+    expect(normalizeRecommendations([])).toEqual([]);
   });
 });

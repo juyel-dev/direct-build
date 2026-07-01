@@ -90,6 +90,7 @@ function isPrivateHost(hostname: string): boolean {
 /* ─── Response size limit ───────────────────────────────────── */
 
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024; // 10 MB
+const UPSTREAM_TIMEOUT_MS = 30_000; // 30s timeout for upstream fetch
 
 /* ─── CORS headers ──────────────────────────────────────────── */
 
@@ -169,7 +170,10 @@ export const Route = createFileRoute("/api/proxy")({
         }
 
         try {
-          const upstream = await fetch(target.toString(), init);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+          const upstream = await fetch(target.toString(), { ...init, signal: controller.signal });
+          clearTimeout(timeoutId);
           const text = await upstream.text();
 
           /* Check response size */

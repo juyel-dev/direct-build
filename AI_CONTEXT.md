@@ -192,7 +192,7 @@ Browser localStorage (encrypted credentials)
 | UI | Dashboard strategy panel | Loads existing recs on mount; "Analyze page" button clears dismissed types before analysis; shows recs grouped by type with priority; dismiss button per type |
 | Tests | Strategy service test (Phase 4.1.5) | **10 tests** — brand memory injection, empty memory, average score, top-post ranking, zero-score exclusion from underperforming, empty history, missing engagement snapshots, valid JSON output, `callLlm` malformed JSON → empty array, empty content → empty array |
 
-#### Phase 4.1.5 — Strategy Reliability Hardening ✅
+#### Phase 4.1 Verification — Intelligence Quality Pass ✅
 
 | Issue | Type | Fix |
 |-------|------|-----|
@@ -204,6 +204,21 @@ Browser localStorage (encrypted credentials)
 | UI `dismissedTypes` not reset on re-analysis | **UX** | `setDismissedTypes(new Set())` added at top of `handleAnalyze` |
 | Missing pagination | **LOW** | Not added — page typically has <200 recs; `findByPage` sorted by priority desc + generated_at desc |
 | Worker `generate_strategy` stub | **ARCHITECTURE** | Intentional — AI API key lives on client; worker runs on server without user keys |
+| **No upstream timeout** in `/api/proxy` | **SAFETY** | Added `AbortController` with 30s timeout on upstream fetch |
+| **No structured logging** in `callLlm` | **OBSERVABILITY** | Added `this.log("info", ...)` before call, on failure, and on success with recommendation count |
+| **No response validation** — any shape accepted | **SAFETY** | Added `normalizeRecommendations()` — filters out items missing `recommendation_type` or `recommendation_text`; fills defaults for optional fields |
+| **No fallback** on AI failure — user sees raw error | **RESILIENCE** | `analyzePage` catches `callLlm` errors, logs them, returns cached recommendations if available; re-throws only if cache is empty |
+
+#### Phase 4.1 — Known Limitations & Architecture
+
+| Concern | Detail |
+|---------|--------|
+| Single LLM call = single point of failure | If the AI call fails (network, rate limit, model down), user sees an error with no recommendations (unless cached recs exist from a previous analysis) |
+| No cron for auto-generation | `generate_strategy` worker stub exists but requires user API key on client — cron cannot activate without server-side key storage |
+| AI output quality varies by model | Free-tier models may return generic recommendations. `normalizeRecommendations()` filters structurally invalid items but cannot validate semantic quality |
+| No recommendation dedup within a session | `dismissAll` clears old recs before insert so there are no duplicates across sessions. Within a single `analyzePage` call, the AI may return duplicate types — no dedup applied |
+| No recommendation storage pagination | Page typically has <200 recs; DB query sorted by priority desc + generated_at desc with no limit |
+| No rate-limit awareness in client code | If `analyzePage` is called rapidly, the `/api/proxy` rate limiter (120/min) will reject requests. Error surfaced to user as "Too many requests" |
 
 ---
 
@@ -233,7 +248,7 @@ src/
  │   ├── supabase-factory.ts                 # Client factory (createUserClient)
   │   ├── auth-service.ts                     # Auth operations
   │   ├── brand-memory.service.ts             # Brand memory CRUD + auto-extract
-  │   ├── strategy.service.ts                # AI content strategy: analyzePage, buildAnalysisPrompt, callLlm
+  │   ├── strategy.service.ts                # AI content strategy: analyzePage, buildAnalysisPrompt, normalizeRecommendations, callLlm
   │   ├── dashboard-service.ts                # Dashboard aggregation
  │   ├── ai/
  │   │   ├── ai.service.ts                   # AI text/image generation
@@ -379,7 +394,7 @@ bun install           # Install dependencies
 bun run dev           # Start dev server
 bun run build         # Production build (Vercel preset)
 bun run tsc --noEmit  # TypeScript check (REQUIRED before commit)
-bun run test          # Run Vitest (61 tests)
+bun run test          # Run Vitest (65 tests)
 bun run test:watch    # Vitest in watch mode
 bun run lint          # ESLint
 bun run format        # Prettier
