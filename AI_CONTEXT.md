@@ -458,46 +458,131 @@ GitHub Repository (main branch)
 | **Rollback** | Vercel Dashboard → Deployments → click "..." → "Rollback to this deployment" |
 | **Silent mode** | `silent: true` — GitHub comments disabled for deployment status |
 
-### Required Environment Variables
+### Environment Variable Map
 
-Set these in Vercel Dashboard → Project Settings → Environment Variables (Production + Preview).
+Aurora uses a **three-tier credential model** — understand where each variable lives before deploying.
 
-#### Supabase
-| Variable | Source | Required |
-|----------|--------|----------|
-| `FBAI_SUPABASE_URL` | Supabase Dashboard → Settings → API → Project URL | Yes |
-| `FBAI_SUPABASE_ANON_KEY` | Supabase Dashboard → Settings → API → anon/public key | Yes |
-| `FBAI_SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard → Settings → API → service_role key | Yes |
-| `SUPABASE_URL` | Same as `FBAI_SUPABASE_URL` (legacy) | Yes |
-| `SUPABASE_ANON_KEY` | Same as `FBAI_SUPABASE_ANON_KEY` (legacy) | Yes |
-| `SUPABASE_AUTH_CALLBACK_URL` | `https://<project>.vercel.app/auth/callback` | Yes |
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  TIER 1: Vercel Build/Runtime (set in Vercel Dashboard)         │
+│  ─────────────────────────────────────────────────────────────── │
+│  Variables needed by Vite/Nitro at build time or SSR runtime.   │
+│  These are the ONLY vars required in Vercel Project Settings.   │
+├─────────────────────────────────────────────────────────────────┤
+│  TIER 2: Supabase Edge Function Secrets (set via Setup Wizard)  │
+│  ─────────────────────────────────────────────────────────────── │
+│  Pushed to Supabase's internal secret store by the in-app       │
+│  Setup Wizard (setup-runner.ts). Deno.env.get() at runtime.     │
+│  NOT needed in Vercel Dashboard.                                │
+├─────────────────────────────────────────────────────────────────┤
+│  TIER 3: Browser localStorage (encrypted, set via Settings UI)  │
+│  ─────────────────────────────────────────────────────────────── │
+│  User enters these credentials in the Settings page. Stored     │
+│  encrypted with AES-GCM (passphrase in sessionStorage).         │
+│  NEVER sent to Vercel or Supabase env stores.                   │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-#### Facebook
-| Variable | Source | Required |
-|----------|--------|----------|
-| `FBAI_FB_PAGE_TOKEN` | Facebook Graph API (long-lived page token) | Yes |
+#### Tier 1 — Vercel Env Vars (set in Vercel Dashboard)
 
-#### AI Providers
-| Variable | Source | Required |
-|----------|--------|----------|
-| `FBAI_ENCRYPTION_KEY` | Generated via `crypto.getRandomValues(new Uint8Array(32))` → base64 | Yes |
+| Variable | Source | Required | Notes |
+|----------|--------|----------|-------|
+| *(none)* | | | The frontend SSR app needs no Vercel env vars. Supabase credentials are user-provided via the browser UI. |
 
-#### Auth & Security
-| Variable | Source | Required |
-|----------|--------|----------|
-| `FBAI_USER_PASSPHRASE` | User-chosen passphrase for credential encryption | Yes |
-| `FBAI_JWT_SECRET` | Generated random string (64+ chars) | Yes |
+The app reads all Supabase, Facebook, and AI credentials from encrypted browser localStorage (set in Settings page). No Vercel env vars are required at build time or SSR runtime.
 
-#### Runtime Only (Never in Build)
-These env vars are referenced by name only in SSR code (`server.ts`, `/api/proxy`). The values are stored in Supabase Vault and read at runtime via `Deno.env.get()`. They NEVER appear in the client bundle.
+#### Tier 2 — Supabase Edge Function Secrets (pushed by Setup Wizard)
+
+These are pushed to `supabase/functions/aurora-worker` secrets at setup time, NOT set in Vercel.
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `FBAI_SUPABASE_URL` | Yes | — | Supabase project URL for worker DB access |
+| `FBAI_SUPABASE_SERVICE_ROLE_KEY` | Yes | — | Service role key for worker DB access |
+| `FBAI_CRON_SECRET` | No | — | Shared secret for pg_cron → worker auth |
+| `FBAI_FB_PAGE_TOKEN` | Yes | — | Facebook long-lived page access token |
+| `FBAI_AI_API_KEY` | No | — | LLM provider API key |
+| `FBAI_LLM_PROVIDER` | No | `"openrouter"` | Default LLM provider |
+| `FBAI_LLM_MODEL` | No | `"meta-llama/llama-3.3-70b-instruct:free"` | Default LLM model |
+| `FBAI_LLM_BASE_URL` | No | provider default | Custom LLM base URL |
+| `FBAI_IMAGE_PROVIDER` | No | `"pollinations"` | Default image provider |
+| `FBAI_IMAGE_MODEL` | No | `"flux"` | Default image model |
+| `FBAI_IMAGE_API_KEY` | No | — | Image provider API key (DALL-E) |
+
+These are set automatically when the user completes the in-app Setup Wizard.
+
+**Important:** The same env vars are also needed for the `manage-setup` Edge Function:
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `SUPABASE_URL` | Yes | Set manually in Supabase Dashboard → Edge Functions → manage-setup → Secrets |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Same as above |
+
+#### Tier 3 — Browser localStorage Credentials (set via Settings UI)
+
+| Key (in SecretsSchema) | Encrypted in localStorage | Purpose |
+|------------------------|--------------------------|---------|
+| `supabaseUrl` | Yes | Supabase project URL for client SDK |
+| `supabaseAnonKey` | Yes | Supabase anon/public key for client SDK |
+| `supabaseServiceKey` | Yes | Service role (legacy, no longer used at runtime) |
+| `supabasePAT` | Yes | Personal Access Token for Management API |
+| `facebookPageToken` | Yes | Facebook page access token |
+| `facebookPageId` | Yes | Facebook page ID |
+| `aiApiKey` | Yes | LLM provider API key |
+| `imageApiKey` | Yes | Image provider API key |
+| `encryptionKey` | Yes | AES-GCM key (base64, 32 bytes) |
+| `passphrase` | No (sessionStorage) | Cleared on tab close |
+
+These are NEVER set as Vercel env vars. They are entered once by the user in Settings → Credentials and persist across sessions.
 
 ### Environment Variable Rules
 
 1. **Never commit secrets** — `.env*` files in `.gitignore`, only reference names in `AI_CONTEXT.md`
-2. **Never put tokens in frontend bundle** — All API keys accessed server-side via `/api/proxy` or Supabase Vault
-3. **Document required variables** — All env vars listed above with source instructions
-4. **Preview env overrides** — Set same env vars in Preview environment with test/sandbox values
-5. **Rotation** — Update env vars in Vercel Dashboard → redeploy to apply
+2. **Never put tokens in frontend bundle** — All API keys accessed via browser localStorage (encrypted) or Supabase Edge Function secrets
+3. **Document where each variable lives** — See three-tier map above
+4. **Rotation** — Update credentials in Settings UI → re-save; for Edge Functions, re-run Setup Wizard
+
+### Pre-Deployment Checklist (Before First Vercel Import)
+
+Before importing the repo into Vercel, verify each item:
+
+| # | Item | Status | Instructions |
+|---|------|--------|-------------|
+| 1 | **GitHub remote correct** | ✅ | `origin = https://github.com/juyel-dev/direct-build.git` |
+| 2 | **main branch pushed** | ✅ | Latest commit: `d57b040` — "Setup GitHub Vercel continuous deployment" |
+| 3 | **Build passes locally** | ✅ | `bun run build` succeeds (Vite + Nitro/Vercel preset) |
+| 4 | **TypeScript zero errors** | ✅ | `tsc --noEmit` exits clean |
+| 5 | **All tests pass** | ✅ | 77/77 Vitest tests passing |
+| 6 | **No pending changes** | ✅ | `git status` clean |
+| 7 | **Framework detection** | ✅ | `vercel.json` sets `"framework": "vite"` — Vercel auto-detects Vite |
+| 8 | **Build command** | ✅ | `vercel-build` script in `package.json` → `bun run build` |
+| 9 | **SSR/Nitro output format** | ✅ | `vite.config.ts` forces `nitro.preset: "vercel"` — outputs `.vercel/output/` (native Vercel format) |
+| 10 | **Supabase project ready** | ⬜ | User must have Supabase project created (needed after deploy for Setup Wizard) |
+| 11 | **Facebook app + page token** | ⬜ | User must have Facebook Developer app + long-lived page token |
+| 12 | **AI provider API key** | ⬜ | User must have at least one AI provider key (OpenAI, OpenRouter, etc.) |
+| 13 | **`.vercel/output/` ignored** | ✅ | `.vercel/` is in `.gitignore` |
+| 14 | **No secrets in frontend bundle** | ✅ | All secrets accessed via localStorage or Edge Function secrets |
+| 15 | **Vercel account ready** | ⬜ | User must have Vercel account + GitHub OAuth connected |
+
+#### Post-Deploy Steps (after first Vercel deploy succeeds)
+
+1. Open `https://<project>.vercel.app/`
+2. Go to **Settings → Credentials** → enter Supabase URL + anon key
+3. Go to **Settings → Setup** → run Setup Wizard (pushes Edge Functions + secrets + cron)
+4. Go to **Settings → Facebook** → add page token and page ID
+5. Go to **Settings → AI Providers** → configure LLM and image provider
+6. Create a test post → verify it reaches Facebook page
+7. Verify analytics and strategy panels load data
+
+### Deployment Risks
+
+| Risk | Likelihood | Mitigation |
+|------|-----------|------------|
+| Bun not available in Vercel build image | Low | Bun is pre-installed on Vercel since Oct 2024; fallback: change to `npm run build` in `vercel.json` |
+| Missing Supabase credentials on first load | Certain (expected) | App shows Setup card instead of dashboard — user enters credentials in Settings |
+| Edge Function cold start delays | Medium | Worker has 30s timeout + heartbeat; cold start adds ~1-2s |
+| Facebook token expiry | Low | Worker detects code 190, creates system event, stops retries |
+| AI provider rate limits | Medium | `/api/proxy` rate-limited at 120/min; worker has circuit breaker (3 failures in 5 min = cooldown) |
+| Preview deployments expose unconfigured app | Low | Preview deploys same app — user must configure Supabase separately per preview |
 
 ### How Future Agents Should Deploy Changes
 
@@ -524,9 +609,12 @@ These env vars are referenced by name only in SSR code (`server.ts`, `/api/proxy
 
 ### Status
 
-- **Vercel GitHub Integration:** Not yet connected — user must connect via Vercel Dashboard
-- **Production URL:** Not yet deployed — after integration, first push deploys
-- **Preview Deployments:** Enabled via `vercel.json` GitHub settings
-- **Build Command:** `bun run build` (Vite + Nitro/Vercel preset)
+- **Vercel GitHub Integration:** Not yet connected — user must import repo via Vercel Dashboard
+- **Production URL:** Not yet deployed — after import, first push deploys
+- **Preview Deployments:** Enabled via `vercel.json` GitHub settings (auto-cancelation + silent mode)
+- **Build Command:** `bun run build` (Vite + Nitro/Vercel preset), outputs native `.vercel/output/` format
+- **Vercel Env Vars Required:** Zero — all credentials flow through browser localStorage + Supabase Edge Function secrets
+- **Framework Detection:** Auto-detected as Vite (`"framework": "vite"` in vercel.json)
 - **Tests Passing:** 77/77 (Vitest)
 - **TypeScript Errors:** 0 (`tsc --noEmit`)
+- **Deployment Readiness:** ✅ **Ready for Vercel import** — no blocking issues
