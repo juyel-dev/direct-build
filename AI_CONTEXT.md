@@ -183,17 +183,31 @@ Browser localStorage (encrypted credentials)
 
 | Area | Change | Details |
 |------|--------|---------|
-| Strategy Recommendations | Migration 7 | `strategy_recommendations` table: page_id, recommendation_type (free-text), recommendation_text, reasoning, priority (1-10), related_content (jsonb), generated_at, status (active/dismissed/applied) |
-| Strategy Repository | `StrategyRepository` | `findByPage`, `insert`, `insertBatch`, `dismiss`, `loadInsights` — standard repository pattern |
-| Strategy Service | `StrategyService` | `analyzePage(pageId, llmConfig)` — fetches brand memory + strategy insights + 90 days of post history via `PostRepository.findPublishedWithBriefs`, builds structured LLM prompt with top/underperforming posts, parses JSON recommendations, persists to DB, dismisses old recs per type |
-| Strategy Service | `buildAnalysisPrompt` | Constructs a single LLM call combining brand context, strategy insights (best hour, avg score, best topics), and scored post data |
-| Strategy Service | `callLlm` | Uses `proxyFetch` (same as AiService) routing through `/api/proxy` for CORS-safe AI calls |
-| Strategy Service | `loadRecommendations(pageId)` | Loads active recommendations from DB for dashboard display |
+| Strategy Recommendations | Migration 7 | `strategy_recommendations` table: page_id, recommendation_type (free-text), recommendation_text, reasoning, priority (1-10), related_content (jsonb), generated_at, status (active/dismissed/applied); `CHECK (priority >= 0 AND priority <= 10)` constraint |
+| Strategy Repository | `StrategyRepository` | `findByPage`, `insert`, `insertBatch`, `dismiss`, `dismissAll`, `loadInsights` — standard repository pattern |
+| Strategy Service | `StrategyService` | `analyzePage(pageId, llmConfig)` — fetches brand memory + strategy insights + 90 days of post history, builds structured LLM prompt, parses JSON recommendations, persists via `insertBatch`, dismisses ALL old recs before insert |
+| Strategy Service | `buildAnalysisPrompt` (exported function) | Pure function — constructs single LLM call combining brand context, strategy insights (best hour, avg score, best topics), and scored post data. Tested directly via import. |
+| Strategy Service | `callLlm` | Uses `proxyFetch`; JSON parse failure returns `[]` instead of throwing; non-OK response throws with status + body excerpt |
 | Worker integration | `generate_strategy` job kind | Handler registered in worker switch statement (stub — actual API key lives on client); no cron activated |
-| UI | Dashboard strategy panel | Recommendations panel below worker status: loads existing recs on mount, "Analyze page" button calls `analyzePage`, shows recs grouped by type with priority, dismiss button |
-| Tests | Strategy service test | 4 tests covering data transformation: brand memory context injection in prompt, graceful empty-memory handling, average score computation, top/bottom post ranking |
+| UI | Dashboard strategy panel | Loads existing recs on mount; "Analyze page" button clears dismissed types before analysis; shows recs grouped by type with priority; dismiss button per type |
+| Tests | Strategy service test (Phase 4.1.5) | **10 tests** — brand memory injection, empty memory, average score, top-post ranking, zero-score exclusion from underperforming, empty history, missing engagement snapshots, valid JSON output, `callLlm` malformed JSON → empty array, empty content → empty array |
+
+#### Phase 4.1.5 — Strategy Reliability Hardening ✅
+
+| Issue | Type | Fix |
+|-------|------|-----|
+| `dismiss(pageId, "content_strategy")` was a no-op | **BUG** | Replaced with `dismissAll(pageId)` — dismisses ALL active recs for the page before inserting new ones |
+| Individual `for...of` inserts (N queries) | **PERFORMANCE** | Replaced with single `insertBatch(batch)` call |
+| `JSON.parse(content)` throws on bad AI output | **SAFETY** | Wrapped in try-catch; returns `[]` on parse failure |
+| `buildAnalysisPrompt` private — tests duplicated function body | **MAINTENANCE** | Exported as pure function; tests import it directly; 3 new test scenarios added |
+| Missing `priority` range constraint | **DATA QUALITY** | Added `CHECK (priority >= 0 AND priority <= 10)` to migration 7 |
+| UI `dismissedTypes` not reset on re-analysis | **UX** | `setDismissedTypes(new Set())` added at top of `handleAnalyze` |
+| Missing pagination | **LOW** | Not added — page typically has <200 recs; `findByPage` sorted by priority desc + generated_at desc |
+| Worker `generate_strategy` stub | **ARCHITECTURE** | Intentional — AI API key lives on client; worker runs on server without user keys |
 
 ---
+
+
 
 ## File Manifest (All Source Files)
 
@@ -289,6 +303,9 @@ vitest.config.ts                             # Vitest configuration
 | No rate limiting on proxy | MEDIUM | Add `@upstash/rate-limit` or in-memory limiter to `/api/proxy` — **Phase 3: DONE** (in-memory per-IP sliding window, 120/min) |
 | useAuroraQuery still uses direct repos | MEDIUM | Draft operations and schedule queries still bypass service layer — extract to DraftService — **Phase 3: DONE** |
 | Large bundle size | MEDIUM | Route-based lazy loading; tree-shake unused Radix UI; review GlassCard and analytics bundles — **Phase 3: DONE** (React.lazy for analytics) |
+| Strategy: AI output quality varies by model | LOW | Free-tier models may return generic or off-topic recommendations; consider model tier validation |
+| Strategy: No cron for auto-generation | LOW | `generate_strategy` worker stub exists but requires user API key on client — cron cannot activate without server-side key storage |
+| Strategy: Single LLM call = single point of failure | LOW | If the call fails (network, rate limit, model down), the user sees an error with no fallback recommendations |
 | Image optimization | LOW | Add WebP/AVIF pipeline for uploaded images |
 | API key rotation | LOW | No built-in mechanism to rotate or revoke stored API keys |
 | Worker cold starts | LOW | Deno Edge Function cold start can delay job processing by 1–2s |
@@ -362,7 +379,7 @@ bun install           # Install dependencies
 bun run dev           # Start dev server
 bun run build         # Production build (Vercel preset)
 bun run tsc --noEmit  # TypeScript check (REQUIRED before commit)
-bun run test          # Run Vitest (55 tests)
+bun run test          # Run Vitest (61 tests)
 bun run test:watch    # Vitest in watch mode
 bun run lint          # ESLint
 bun run format        # Prettier

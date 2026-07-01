@@ -59,6 +59,7 @@ function Dashboard() {
     if (!pageId) return;
     setAnalyzing(true);
     setAnalysisError(null);
+    setDismissedTypes(new Set());
     try {
       const sb = await createUserClient();
       if (!sb) { setAnalysisError("Unlock your vault first."); return; }

@@ -12,11 +12,113 @@ export type LlmConfig = {
   apiKey: string;
 };
 
-type PostWithMetrics = {
+export type PostWithMetrics = {
   content_briefs?: { topic?: string; caption?: string; hashtags?: string[] };
   engagement_snapshots?: Array<{ likes?: number; comments?: number; shares?: number; captured_at?: string }>;
   published_at?: string;
 };
+
+export type ScoredPost = {
+  topic: string;
+  caption: string;
+  likes: number;
+  comments: number;
+  shares: number;
+  score: number;
+  published_at?: string;
+};
+
+export type AnalysisPrompt = {
+  task: string;
+  brand: string;
+  strategy_insights: {
+    best_posting_hour: number | null;
+    best_topics: string[];
+    avg_engagement_rate: number | null;
+    average_post_score: number;
+  };
+  top_performing_posts: Array<{ topic: string; caption: string; likes: number; comments: number; shares: number; score: number }>;
+  underperforming_posts: Array<{ topic: string; caption: string; score: number }>;
+  requirements: string[];
+};
+
+export function buildAnalysisPrompt(
+  memory: BrandMemory | null,
+  insights: Record<string, unknown>,
+  posts: PostWithMetrics[],
+): string {
+  const scoredPosts = posts
+    .map((p) => {
+      const snaps = p.engagement_snapshots ?? [];
+      const latest = snaps[snaps.length - 1] ?? {};
+      const score = (latest.likes ?? 0) + (latest.comments ?? 0) * 2 + (latest.shares ?? 0) * 3;
+      return {
+        topic: p.content_briefs?.topic ?? "",
+        caption: (p.content_briefs?.caption ?? "").slice(0, 200),
+        likes: latest.likes ?? 0,
+        comments: latest.comments ?? 0,
+        shares: latest.shares ?? 0,
+        score,
+        published_at: p.published_at,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const topPosts = scoredPosts.slice(0, 10);
+  const bottomPosts = scoredPosts.filter((p) => p.score > 0).slice(-5);
+  const totalEngagement = scoredPosts.reduce((a, p) => a + p.score, 0);
+  const avgScore = scoredPosts.length ? Math.round(totalEngagement / scoredPosts.length) : 0;
+
+  const brandContext = memory
+    ? [
+        memory.brand_descriptors.length ? `Brand identity: ${memory.brand_descriptors.join(", ")}.` : "",
+        memory.writing_style_notes ? `Style: ${memory.writing_style_notes}.` : "",
+        memory.tone_guidelines ? `Tone: ${memory.tone_guidelines}.` : "",
+        memory.effective_hashtags.length ? `Top hashtags: ${memory.effective_hashtags.join(", ")}.` : "",
+        memory.avoided_topics.length ? `Avoid: ${memory.avoided_topics.join(", ")}.` : "",
+      ].filter(Boolean).join(" ")
+    : "No brand memory yet.";
+
+  const hours = scoredPosts
+    .filter((p) => p.published_at)
+    .map((p) => new Date(p.published_at!).getUTCHours());
+  const hourCounts = new Map<number, number>();
+  for (const h of hours) hourCounts.set(h, (hourCounts.get(h) ?? 0) + 1);
+  const bestHour = Array.from(hourCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+  return JSON.stringify({
+    task: "Analyze this Facebook page's content performance and generate 3-5 strategic recommendations.",
+    brand: brandContext,
+    strategy_insights: {
+      best_posting_hour: insights.best_posting_hour ?? bestHour,
+      best_topics: insights.best_topics ?? [],
+      avg_engagement_rate: insights.avg_engagement_rate ?? null,
+      average_post_score: avgScore,
+    },
+    top_performing_posts: topPosts.map((p) => ({
+      topic: p.topic,
+      caption: p.caption,
+      likes: p.likes,
+      comments: p.comments,
+      shares: p.shares,
+      score: p.score,
+    })),
+    underperforming_posts: bottomPosts.map((p) => ({
+      topic: p.topic,
+      caption: p.caption,
+      score: p.score,
+    })),
+    requirements: [
+      "Return ONLY valid JSON. No markdown, no code fences.",
+      'Format: {"recommendations":[{"recommendation_type":"topic|hook|timing|brand_voice|content_angle","recommendation_text":"clear actionable suggestion","reasoning":"why this helps the page grow","priority":1-10,"related_content":[{"type":"example","text":"supporting detail"}]}]}',
+      "recommendation_type must be one of: topic, hook, timing, brand_voice, content_angle",
+      "Priority 10 = most important. Priority 1 = nice to have.",
+      "Base suggestions on actual data from top and underperforming posts.",
+      "If brand memory exists, ensure suggestions align with brand identity, tone, and style.",
+      "If brand memory is empty, suggest setting up brand descriptors.",
+    ],
+  });
+}
 
 export class StrategyService extends BaseService {
   private repo: StrategyRepository;
@@ -41,20 +143,20 @@ export class StrategyService extends BaseService {
       this.loadPostHistory(pageId),
     ]);
 
-    const prompt = this.buildAnalysisPrompt(memory, insights, rawPosts);
+    const prompt = buildAnalysisPrompt(memory, insights, rawPosts);
     const recommendations = await this.callLlm(prompt, llm);
 
-    await this.repo.dismiss(pageId, "content_strategy");
-    for (const rec of recommendations) {
-      await this.repo.insert({
-        page_id: pageId,
-        recommendation_type: rec.recommendation_type ?? "content_strategy",
-        recommendation_text: rec.recommendation_text ?? "",
-        reasoning: rec.reasoning ?? "",
-        priority: rec.priority ?? 0,
-        related_content: rec.related_content ?? [],
-      });
-    }
+    await this.repo.dismissAll(pageId);
+
+    const batch = recommendations.map((rec) => ({
+      page_id: pageId,
+      recommendation_type: rec.recommendation_type ?? "content_strategy",
+      recommendation_text: rec.recommendation_text ?? "",
+      reasoning: rec.reasoning ?? "",
+      priority: rec.priority ?? 0,
+      related_content: rec.related_content ?? [],
+    }));
+    await this.repo.insertBatch(batch);
 
     return this.repo.findByPage(pageId);
   }
@@ -62,84 +164,6 @@ export class StrategyService extends BaseService {
   private async loadPostHistory(pageId: string): Promise<PostWithMetrics[]> {
     const since = new Date(Date.now() - 90 * 86400_000).toISOString();
     return this.posts.findPublishedWithBriefs(pageId, since) as Promise<PostWithMetrics[]>;
-  }
-
-  private buildAnalysisPrompt(
-    memory: BrandMemory | null,
-    insights: Record<string, unknown>,
-    posts: PostWithMetrics[],
-  ): string {
-    const scoredPosts = posts
-      .map((p) => {
-        const snaps = p.engagement_snapshots ?? [];
-        const latest = snaps[snaps.length - 1] ?? {};
-        const score = (latest.likes ?? 0) + (latest.comments ?? 0) * 2 + (latest.shares ?? 0) * 3;
-        return {
-          topic: p.content_briefs?.topic ?? "",
-          caption: (p.content_briefs?.caption ?? "").slice(0, 200),
-          likes: latest.likes ?? 0,
-          comments: latest.comments ?? 0,
-          shares: latest.shares ?? 0,
-          score,
-          published_at: p.published_at,
-        };
-      })
-      .sort((a, b) => b.score - a.score);
-
-    const topPosts = scoredPosts.slice(0, 10);
-    const bottomPosts = scoredPosts.filter((p) => p.score > 0).slice(-5);
-    const totalEngagement = scoredPosts.reduce((a, p) => a + p.score, 0);
-    const avgScore = scoredPosts.length ? Math.round(totalEngagement / scoredPosts.length) : 0;
-
-    const brandContext = memory
-      ? [
-          memory.brand_descriptors.length ? `Brand identity: ${memory.brand_descriptors.join(", ")}.` : "",
-          memory.writing_style_notes ? `Style: ${memory.writing_style_notes}.` : "",
-          memory.tone_guidelines ? `Tone: ${memory.tone_guidelines}.` : "",
-          memory.effective_hashtags.length ? `Top hashtags: ${memory.effective_hashtags.join(", ")}.` : "",
-          memory.avoided_topics.length ? `Avoid: ${memory.avoided_topics.join(", ")}.` : "",
-        ].filter(Boolean).join(" ")
-      : "No brand memory yet.";
-
-    const hours = scoredPosts
-      .filter((p) => p.published_at)
-      .map((p) => new Date(p.published_at!).getUTCHours());
-    const hourCounts = new Map<number, number>();
-    for (const h of hours) hourCounts.set(h, (hourCounts.get(h) ?? 0) + 1);
-    const bestHour = Array.from(hourCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-
-    return JSON.stringify({
-      task: "Analyze this Facebook page's content performance and generate 3-5 strategic recommendations.",
-      brand: brandContext,
-      strategy_insights: {
-        best_posting_hour: insights.best_posting_hour ?? bestHour,
-        best_topics: insights.best_topics ?? [],
-        avg_engagement_rate: insights.avg_engagement_rate ?? null,
-        average_post_score: avgScore,
-      },
-      top_performing_posts: topPosts.map((p) => ({
-        topic: p.topic,
-        caption: p.caption,
-        likes: p.likes,
-        comments: p.comments,
-        shares: p.shares,
-        score: p.score,
-      })),
-      underperforming_posts: bottomPosts.map((p) => ({
-        topic: p.topic,
-        caption: p.caption,
-        score: p.score,
-      })),
-      requirements: [
-        "Return ONLY valid JSON. No markdown, no code fences.",
-        'Format: {"recommendations":[{"recommendation_type":"topic|hook|timing|brand_voice|content_angle","recommendation_text":"clear actionable suggestion","reasoning":"why this helps the page grow","priority":1-10,"related_content":[{"type":"example","text":"supporting detail"}]}]}',
-        "recommendation_type must be one of: topic, hook, timing, brand_voice, content_angle",
-        "Priority 10 = most important. Priority 1 = nice to have.",
-        "Base suggestions on actual data from top and underperforming posts.",
-        "If brand memory exists, ensure suggestions align with brand identity, tone, and style.",
-        "If brand memory is empty, suggest setting up brand descriptors.",
-      ],
-    });
   }
 
   private async callLlm(
@@ -180,7 +204,14 @@ export class StrategyService extends BaseService {
 
     const data = await r.json<{ choices?: { message?: { content?: string } }[] }>();
     const content = data.choices?.[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      return [];
+    }
+
+    return Array.isArray(parsed.recommendations) ? (parsed.recommendations as Array<any>) : [];
   }
 }

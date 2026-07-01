@@ -536,6 +536,10 @@ create trigger trg_set_user_id
   for each row
   execute function public.set_user_id();
 
+-- Data quality constraint
+alter table public.strategy_recommendations drop constraint if exists strategy_recommendations_priority_check;
+alter table public.strategy_recommendations add constraint strategy_recommendations_priority_check check (priority >= 0 and priority <= 10);
+
 -- Grants
 grant select, insert, update, delete on public.strategy_recommendations to anon, authenticated;
 grant all on public.strategy_recommendations to service_role;

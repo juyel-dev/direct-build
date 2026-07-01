@@ -86,4 +86,13 @@ export class StrategyRepository extends BaseRepository {
       .eq("status", "active");
     if (error) this.handleError(error, "strategy.dismiss");
   }
+
+  async dismissAll(pageId: string): Promise<void> {
+    const { error } = await this.client
+      .from("strategy_recommendations")
+      .update({ status: "dismissed" })
+      .eq("page_id", pageId)
+      .eq("status", "active");
+    if (error) this.handleError(error, "strategy.dismissAll");
+  }
 }
