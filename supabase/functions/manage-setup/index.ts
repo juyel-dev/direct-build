@@ -23,6 +23,27 @@ async function validatePat(pat: string): Promise<boolean> {
   }
 }
 
+const DANGEROUS_SQL = [
+  /^\s*DROP\s+(TABLE|SCHEMA|DATABASE|INDEX|VIEW|FUNCTION|TRIGGER|EXTENSION)\s+/i,
+  /^\s*TRUNCATE\s+/i,
+  /^\s*ALTER\s+(TABLE|SCHEMA)\s+.*\s+DROP\s+/i,
+  /^\s*REINDEX\s+/i,
+  /^\s*VACUUM\s+/i,
+  /^\s*CLUSTER\s+/i,
+  /^\s*CREATE\s+(USER|ROLE|DATABASE)\s+/i,
+  /^\s*ALTER\s+(USER|ROLE|DATABASE)\s+/i,
+];
+
+const MAX_QUERY_LENGTH = 10000;
+
+function validateQuery(query: string): string | null {
+  if (query.length > MAX_QUERY_LENGTH) return `Query exceeds ${MAX_QUERY_LENGTH} characters`;
+  for (const pattern of DANGEROUS_SQL) {
+    if (pattern.test(query)) return `Blocked dangerous SQL pattern: ${pattern}`;
+  }
+  return null;
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return json({ error: "Use POST" }, 405);
@@ -64,6 +85,8 @@ Deno.serve(async (request) => {
       case "run_sql": {
         const { query, params } = payload ?? {};
         if (!query || typeof query !== "string") return json({ error: "Missing query" }, 400);
+        const validationError = validateQuery(query);
+        if (validationError) return json({ error: validationError }, 400);
         const { data, error } = await supabase.rpc("exec_sql", {
           query_text: query,
           query_params: Array.isArray(params) ? params : [],
