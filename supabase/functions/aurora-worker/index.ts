@@ -607,14 +607,29 @@ async function fetchFacebookMetrics(fbPostId: string, token: string) {
     await recordProviderFailure("facebook", errMsg);
     return null;
   }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error(`Facebook Graph API returned unexpected response shape: ${JSON.stringify(body).slice(0, 200)}`);
+  }
+  const likes = Number(body.reactions?.summary?.total_count);
+  const comments = Number(body.comments?.summary?.total_count);
+  const shares = Number(body.shares?.count);
+  if (!Number.isFinite(likes) || !Number.isFinite(comments) || !Number.isFinite(shares)) {
+    throw new Error(
+      `Facebook Graph API response missing expected metrics fields: likes=${JSON.stringify(body.reactions?.summary?.total_count)}, comments=${JSON.stringify(body.comments?.summary?.total_count)}, shares=${JSON.stringify(body.shares?.count)}`,
+    );
+  }
   const insightValues = new Map<string, number>();
-  for (const item of body.insights?.data ?? []) {
-    insightValues.set(item.name, Number(item.values?.[0]?.value ?? 0));
+  if (body.insights && typeof body.insights === "object" && Array.isArray(body.insights.data)) {
+    for (const item of body.insights.data) {
+      if (item && typeof item.name === "string") {
+        insightValues.set(item.name, Number(item.values?.[0]?.value ?? 0));
+      }
+    }
   }
   return {
-    likes: Number(body.reactions?.summary?.total_count ?? 0),
-    comments: Number(body.comments?.summary?.total_count ?? 0),
-    shares: Number(body.shares?.count ?? 0),
+    likes,
+    comments,
+    shares,
     reactions: body.reactions?.summary ?? {},
     reach: insightValues.get("post_impressions_unique") ?? 0,
     impressions: insightValues.get("post_impressions") ?? 0,
