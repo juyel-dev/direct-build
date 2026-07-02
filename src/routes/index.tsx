@@ -13,6 +13,7 @@ import type { StrategyRecommendation } from "@/types";
 import {
   SparklesIcon,
   ArrowRightIcon,
+  ExclamationTriangleIcon,
   CalendarDaysIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -49,6 +50,7 @@ function Dashboard() {
   const { data, isLoading, error } = useDashboardData();
   const briefs = data?.briefs ?? [];
   const stats = data?.stats ?? null;
+  const alerts = data?.alerts ?? [];
 
   const [recommendations, setRecommendations] = useState<StrategyRecommendation[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
@@ -164,6 +166,26 @@ function Dashboard() {
         <Stat icon={<HeartIcon className="h-5 w-5" />} label="Likes (recent)" value={stats?.totalLikes ?? 0} accent="aurora" />
         <Stat icon={<ChatBubbleLeftIcon className="h-5 w-5" />} label="Comments" value={stats?.totalComments ?? 0} />
       </div>
+
+      {alerts.length > 0 && (
+        <GlassCard className="p-4 mb-6 border-destructive/30">
+          <div className="flex items-center gap-3 mb-3">
+            <ExclamationTriangleIcon className="h-5 w-5 text-destructive shrink-0" />
+            <h2 className="text-sm font-semibold">System Alerts ({alerts.length})</h2>
+          </div>
+          <div className="space-y-2">
+            {alerts.slice(0, 5).map((a) => (
+              <div key={a.id} className="flex items-start gap-2 text-xs">
+                <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-destructive">
+                  {a.category}
+                </span>
+                <span className="text-muted-foreground">{a.message}</span>
+                <span className="shrink-0 ml-auto text-muted-foreground/50">{formatTimeAgo(a.created_at)}</span>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
+      )}
 
       <GlassCard className="p-4 mb-6">
         <div className="flex items-center justify-between">

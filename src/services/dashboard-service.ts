@@ -6,6 +6,7 @@ import { EngagementRepository } from "../repositories/engagement-repository";
 import { SystemEventRepository } from "../repositories/system-event-repository";
 import { BaseService } from "./base";
 import type { DashboardBrief, DashboardStats } from "../hooks/useAuroraQuery";
+import type { SystemEvent } from "../types";
 
 export class DashboardService extends BaseService {
   private pages: PageRepository;
@@ -23,11 +24,12 @@ export class DashboardService extends BaseService {
     this.events = new SystemEventRepository(client);
   }
 
-  async getDashboardData(): Promise<{ briefs: DashboardBrief[]; stats: DashboardStats }> {
+  async getDashboardData(): Promise<{ briefs: DashboardBrief[]; stats: DashboardStats; alerts: SystemEvent[] }> {
     const pageId = await this.pages.getActivePageId();
     if (!pageId) {
       return {
         briefs: [],
+        alerts: [],
         stats: {
           posts7d: 0,
           briefsPending: 0,
@@ -40,11 +42,13 @@ export class DashboardService extends BaseService {
       };
     }
 
-    const [briefs, postCount, snaps, events] = await Promise.all([
+    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [briefs, postCount, snaps, events, alerts] = await Promise.all([
       this.briefs.findNext(pageId, 5),
       this.posts.countPublishedLast7d(),
       this.engagements.findRecent(100),
       this.events.findRecentWorkerEvents(10),
+      this.events.findAlerts(last24h),
     ]);
 
     const todayStart = new Date();
@@ -61,6 +65,6 @@ export class DashboardService extends BaseService {
       workerTodayRuns: todayRuns,
     };
 
-    return { briefs: briefs as DashboardBrief[], stats };
+    return { briefs: briefs as DashboardBrief[], stats, alerts };
   }
 }
