@@ -453,7 +453,7 @@ supabase/functions/
 |---------|--------|
 | Credential storage | AES-GCM encrypted, passphrase in sessionStorage |
 | SQL injection | FIXED — parameterized queries everywhere |
-| Service role exposure | **FIXED** — Browser no longer uses service_role for ops; `manage-setup` edge function handles bucket ops with `SUPABASE_SERVICE_ROLE_KEY` from env. Service role still encrypted in localStorage for backward compat but never used at runtime. |
+| Service role exposure | **FIXED** — Browser no longer uses service_role for ops; `manage-setup` edge function handles bucket ops with `SUPABASE_SERVICE_ROLE_KEY` from env. Service role key stored in encrypted localStorage only for setup-runner to pass to edge function. Dead browser-direct code path removed per Phase 3. |
 | Facebook token leakage | FIXED — Authorization header (client + worker), no URL params |
 | PAT exposure | Acceptable (BYOB model, user's own token) |
 | API proxy security | **ADDED** — Rate limiting (120/min per IP), Zod validation, SSRF protection, response size cap (10MB), logging, HTTPS enforcement |

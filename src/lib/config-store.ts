@@ -32,7 +32,7 @@ export const SecretsSchema = z.object({
     message: "Must be a supabase.co project URL",
   }),
   supabaseAnonKey: z.string().min(20),
-  supabaseServiceKey: z.string().min(20),
+  supabaseServiceKey: z.string().min(20), // Used only by manage-setup edge function (not by browser directly)
   supabasePAT: z.string().min(20),
   facebookPageToken: z.string().min(10).optional().or(z.literal("")),
   facebookPageId: z.string().min(1).optional().or(z.literal("")),
