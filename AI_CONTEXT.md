@@ -458,7 +458,7 @@ supabase/functions/
 | PAT exposure | Acceptable (BYOB model, user's own token) |
 | API proxy security | **ADDED** — Rate limiting (120/min per IP), Zod validation, SSRF protection, response size cap (10MB), logging, HTTPS enforcement |
 | CSP headers | ADDED — script-src, connect-src, etc. hardened |
-| XSS protection | Security headers on all responses |
+| XSS protection | Security headers on all responses. **Residual risk**: passphrase lives in sessionStorage — any XSS can read it at runtime. Accepted per threat model (see crypto.ts). Full fix (server-side credential relay) deferred to SaaS/multi-tenant phase. |
 | Auth isolation | Migration 3 available (optional, backward-compatible) |
 | RLS policies | auth-aware policies with fallback to open access |
 | Worker timeout | ADDED — AbortController timeouts on all external fetch() calls |

@@ -97,6 +97,10 @@ export function hasStoredSecrets(): boolean {
 }
 
 export function setSessionPassphrase(p: string) {
+  // sessionStorage is cleared on tab close. However, any page with XSS can
+  // read the passphrase at runtime. This residual risk is accepted per the
+  // threat model (see crypto.ts). The full fix (server-side credential relay)
+  // belongs in a future SaaS/multi-tenant phase.
   sessionStorage.setItem(SESSION_PASSPHRASE, p);
 }
 export function getSessionPassphrase(): string | null {
