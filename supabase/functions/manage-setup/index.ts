@@ -73,9 +73,9 @@ Deno.serve(async (request) => {
         break;
       }
       case "verify": {
-        const { data, error } = await supabase.from("_dummy_test").select("id").limit(1).maybeSingle();
-        if (error && !error.message?.includes("relation")) throw error;
-        result = { ok: true };
+        const { error } = await supabase.from("_migrations").select("id").limit(1).maybeSingle();
+        if (error) throw error;
+        result = { ok: true, migrations_accessible: true };
         break;
       }
       default:
