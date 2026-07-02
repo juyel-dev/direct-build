@@ -48,6 +48,12 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return json({ error: "Use POST" }, 405);
 
+  // Auth uses the user's Supabase Personal Access Token (PAT) passed in the
+  // Authorization header. PAT auth is intentional here — it allows the frontend
+  // to trigger setup operations (bucket creation, SQL migrations) using the
+  // user's own Supabase credentials without requiring a separate auth system.
+  // JWT verification is not applicable in the current single-user BYOB model.
+  // If multi-tenant auth is added later, replace with short-lived session JWTs.
   const auth = request.headers.get("authorization") ?? "";
   const pat = auth.replace(/^Bearer\s+/i, "").trim();
   if (!pat) {

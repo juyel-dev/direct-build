@@ -98,6 +98,11 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return json({ error: "Use POST." }, 405);
 
+  // Auth uses a shared secret (FBAI_CRON_SECRET) set at deploy time because
+  // this worker is invoked by Supabase pg_cron, which sends the secret as
+  // x-automation-secret header. No JWT/user auth exists in the current BYOB
+  // single-user model. If multi-tenant auth is added later, replace this with
+  // proper JWT verification tied to the caller's session.
   const expectedSecret = Deno.env.get("FBAI_CRON_SECRET");
   const suppliedSecret = request.headers.get("x-automation-secret");
   if (expectedSecret && suppliedSecret !== expectedSecret) {
