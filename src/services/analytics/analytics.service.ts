@@ -1,7 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BaseService } from "../base";
 import { EngagementRepository } from "../../repositories/engagement-repository";
-import { PostRepository } from "../../repositories/post-repository";
+import { PostRepository, type PublishedPostWithMetrics } from "../../repositories/post-repository";
 import { UsageRepository } from "../../repositories/usage-repository";
 import { BriefRepository } from "../../repositories/brief-repository";
 import { format } from "date-fns";
@@ -38,7 +38,7 @@ export class AnalyticsService extends BaseService {
     const snapData = (Array.isArray(snaps) ? snaps : []) as EngagementSnapshot[];
     const series = this.buildEngagementSeries(snapData);
     const topPosts = this.buildTopPosts(snapData, posts, briefTopics);
-    const { costByProvider, totalCost } = this.buildCostData(usage as AiUsage[]);
+    const { costByProvider, totalCost } = this.buildCostData(usage);
 
     return { series, topPosts, costByProvider, totalCost };
   }
@@ -58,14 +58,14 @@ export class AnalyticsService extends BaseService {
 
   private buildTopPosts(
     snaps: EngagementSnapshot[],
-    rawPosts: any[],
-    rawBriefs: any[],
+    rawPosts: PublishedPostWithMetrics[],
+    rawBriefs: Array<{ id: string; topic: string }>,
   ): TopPost[] {
     const briefMap = new Map(
-      rawBriefs.map((b: { id: string; topic: string }) => [b.id, b.topic]),
+      rawBriefs.map((b) => [b.id, b.topic]),
     );
     const postIdToBrief = new Map(
-      (rawPosts as Array<{ id: string; content_brief_id: string | null; fb_permalink_url: string | null }>).map(
+      rawPosts.map(
         (p) => [p.id, { brief: briefMap.get(p.content_brief_id ?? "") ?? "Untitled", url: p.fb_permalink_url }],
       ),
     );

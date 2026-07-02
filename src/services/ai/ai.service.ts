@@ -79,8 +79,8 @@ export class AiService extends BaseService {
 
     if (!r.ok) {
       const body = await r.text().catch(() => "");
-      const parsed = JSON.parse(body || "{}");
-      throw new ExternalServiceError("LLM", r.status, (parsed as any)?.error?.message ?? body.slice(0, 200));
+      const parsed: { error?: { message?: string } } = JSON.parse(body || "{}");
+      throw new ExternalServiceError("LLM", r.status, parsed.error?.message ?? body.slice(0, 200));
     }
     const j = await r.json<{ choices?: { message?: { content?: string } }[] }>();
     const content = j.choices?.[0]?.message?.content ?? "{}";

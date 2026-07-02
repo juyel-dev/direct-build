@@ -66,9 +66,9 @@ export function normalizeRecommendations(raw: unknown[]): ValidRecommendation[] 
   ).map((r) => ({
     recommendation_type: r.recommendation_type,
     recommendation_text: r.recommendation_text,
-    reasoning: typeof (r as any).reasoning === "string" ? (r as any).reasoning : "",
-    priority: typeof (r as any).priority === "number" ? (r as any).priority : 0,
-    related_content: Array.isArray((r as any).related_content) ? (r as any).related_content : [],
+    reasoning: typeof r.reasoning === "string" ? r.reasoning : "",
+    priority: typeof r.priority === "number" ? r.priority : 0,
+    related_content: Array.isArray(r.related_content) ? r.related_content : [],
   }));
 }
 
@@ -229,7 +229,7 @@ export class StrategyService extends BaseService {
 
   private async loadPostHistory(pageId: string): Promise<PostWithMetrics[]> {
     const since = new Date(Date.now() - 90 * 86400_000).toISOString();
-    return this.posts.findPublishedWithBriefs(pageId, since) as Promise<PostWithMetrics[]>;
+    return this.posts.findPublishedWithBriefs(pageId, since) as unknown as Promise<PostWithMetrics[]>;
   }
 
   private async callLlm(

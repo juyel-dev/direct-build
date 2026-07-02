@@ -208,7 +208,7 @@ export function BrandMemorySheet({ open, onClose }: SheetProps) {
                     </span>
                   </div>
                 ))}
-              {(!memory.top_content_snippets || (memory.top_content_snippets as any[]).length === 0) && (
+              {memory.top_content_snippets.length === 0 && (
                 <p className="text-xs text-muted-foreground">No content extracted yet.</p>
               )}
             </div>

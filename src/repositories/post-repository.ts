@@ -1,6 +1,22 @@
 import { BaseRepository, type QueryOptions, type PaginatedResult } from "./base";
 import type { Post } from "../types";
 
+export type PublishedPostWithBriefs = {
+  id: string;
+  page_id: string;
+  published_at: string;
+  fb_permalink_url: string | null;
+  content_briefs: { topic: string; caption: string; hashtags: string[] };
+  engagement_snapshots: Array<{ likes: number; comments: number; shares: number; captured_at: string }>;
+};
+
+export type PublishedPostWithMetrics = {
+  id: string;
+  published_at: string;
+  fb_permalink_url: string | null;
+  content_brief_id: string | null;
+};
+
 export class PostRepository extends BaseRepository {
   async countRecent(pageId: string, since: string): Promise<number> {
     const { count, error } = await this.client
@@ -29,7 +45,7 @@ export class PostRepository extends BaseRepository {
     return count ?? 0;
   }
 
-  async findPublishedWithBriefs(pageId: string, since: string): Promise<any[]> {
+  async findPublishedWithBriefs(pageId: string, since: string): Promise<PublishedPostWithBriefs[]> {
     const { data, error } = await this.client
       .from("posts")
       .select(`
@@ -42,17 +58,17 @@ export class PostRepository extends BaseRepository {
       .gte("published_at", since)
       .order("published_at", { ascending: false });
     if (error) this.handleError(error, "posts.findPublishedWithBriefs");
-    return data ?? [];
+    return (data ?? []) as unknown as PublishedPostWithBriefs[];
   }
 
-  async findPublishedWithMetrics(since: string): Promise<any[]> {
+  async findPublishedWithMetrics(since: string): Promise<PublishedPostWithMetrics[]> {
     const { data, error } = await this.client
       .from("posts")
       .select("id, published_at, fb_permalink_url, content_brief_id")
       .gte("published_at", since)
       .order("published_at", { ascending: false });
     if (error) this.handleError(error, "posts.findPublishedWithMetrics");
-    return data ?? [];
+    return (data ?? []) as PublishedPostWithMetrics[];
   }
 
   async findByPage(pageId: string, options?: QueryOptions): Promise<PaginatedResult<Post>> {
