@@ -80,6 +80,20 @@ const supabase = createClient(supabaseUrl, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+const WORKER_TIMEOUT_MS = 50_000;
+
+async function runWithTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Worker timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([fn(), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return json({ error: "Use POST." }, 405);
@@ -93,19 +107,22 @@ Deno.serve(async (request) => {
   const startedAt = Date.now();
   log("info", "Worker invocation started");
   try {
-    const pages = await loadActivePages();
-    await seedRecurringJobs(pages);
-    const jobs = await claimJobs();
-    const results = [];
-    for (const job of jobs) {
-      results.push(await processJob(job, pages));
-    }
+    const result = await runWithTimeout(async () => {
+      const pages = await loadActivePages();
+      await seedRecurringJobs(pages);
+      const jobs = await claimJobs();
+      const results = [];
+      for (const job of jobs) {
+        results.push(await processJob(job, pages));
+      }
+      return results;
+    }, WORKER_TIMEOUT_MS);
     const elapsed = Date.now() - startedAt;
-    log("info", "Worker invocation completed", { claimed: jobs.length, elapsed_ms: elapsed });
+    log("info", "Worker invocation completed", { claimed: result.length, elapsed_ms: elapsed });
     return json({
       ok: true,
-      claimed: jobs.length,
-      results,
+      claimed: result.length,
+      results: result,
       elapsed_ms: elapsed,
     });
   } catch (error) {
