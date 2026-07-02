@@ -1,18 +1,41 @@
-# AI Agent Handover Context
+# Aurora Project Constitution
 
-**Project:** Aurora — AI Facebook Autopilot
+> **Single Source of Truth** — Merged from `AI_CONTEXT.md`, `ARCHITECTURE.md`, and Aurora Master Plan v2.
+> Every AI agent MUST read this file first. Do NOT modify this file without updating all three source perspectives.
+> If you need to update this file, ensure no information is removed — only add or correct.
+
+**Last Updated:** July 2026
 **Repository:** https://github.com/juyel-dev/direct-build
-**Handover Date:** July 2026
-**Previous Agents:** 3 (OpenCode)
-**Phase 3.5:** Accepted — worker heartbeat/circuit breaker, TypeScript strict mode, migration 5
+**Prior AI Agents:** 3 (OpenCode)
+**Current Phase:** 4.1 (AI Content Strategy Foundation) — Complete
+**Next Phase:** 4.2 (Facebook Automation Improvements)
 
 ---
 
-## Project Overview
+## Preamble
+
+This Constitution governs all development of Aurora — an open-source AI Facebook Autopilot. It codifies the project's architecture, principles, completed work, and future roadmap. Every contributor, human or AI, MUST operate within these bounds.
+
+---
+
+## Article I — Executive Overview
 
 Aurora is an open-source AI Facebook Autopilot that follows the BYOB/BYOK model (Bring Your Own Backend / Bring Your Own Keys). Users own their Supabase project; the app provisions schema, edge functions, and automation during a one-click setup wizard.
 
 **Core Workflow:** Planning → Draft → Approval → Scheduling → Publishing → Analytics
+
+**Current State:**
+- 77/77 Vitest tests passing
+- 0 TypeScript errors (`tsc --noEmit`)
+- Vercel-ready (Nitro SSR, Vite build)
+- Not yet deployed to production (waiting on Vercel import + user Supabase setup)
+- 8 database migrations applied
+- 2 Supabase Edge Functions deployed (aurora-worker, manage-setup)
+- AI Content Strategy (Phase 4.1) complete with StrategyService, StrategyRepository, Dashboard UI, 14 tests
+
+---
+
+## Article II — Project Vision & Philosophy
 
 ### Product Vision (DO NOT BREAK)
 - AI Facebook Autopilot — **Facebook-first. No other platforms until Phase 5+**
@@ -24,9 +47,29 @@ Aurora is an open-source AI Facebook Autopilot that follows the BYOB/BYOK model 
 - Keep existing workflow untouched
 - Growth Intelligence: analytics, reports, actionable insights
 
+### Core Principles (from Master Plan Section 1)
+
+1. **Quality over speed** — Never ship broken code. Tests, types, and lint must pass before any commit.
+2. **Don't break the workflow** — The existing Planning → Draft → Approval → Scheduling → Publishing → Analytics pipeline is sacred. Any change must preserve or enhance it.
+3. **Build trust through reliability** — Users hand over their Facebook page access and AI API keys. Every failure must be graceful, logged, and recoverable.
+4. **Security is not optional** — AES-GCM encryption, parameterized queries, service-role removal from browser, SSRF protection, rate limiting, CSP headers, and auth-aware RLS are baseline requirements.
+5. **Architecture first** — Always go through Routes → Hooks → Services → Repositories. No shortcuts. No direct `.from()` calls outside repositories.
+6. **Document as you build** — Update this Constitution for every structural change.
+7. **Plan for multi-platform, execute Facebook-only** — Design abstractions for future platforms (Instagram, LinkedIn, TikTok, Twitter/X) but implement zero code for them until Phase 5+.
+
+### Product Philosophy (from Master Plan Section 2)
+
+- Aurora is a **Facebook-first platform**. Build Facebook dominance before any multi-platform expansion. Do NOT implement Instagram, LinkedIn, TikTok, or Twitter/X integrations.
+- Phase 4 focus: **Facebook Growth Intelligence**. Keep architecture flexible for future platforms (prefer abstractions over hard-coded Facebook logic) but do not add any other platform code.
+- The BYOB/BYOK model means **users own their data**. Never hardcode credentials. Never store user secrets on our servers (unless we migrate to SaaS — see Article XXXV).
+- **One-click setup** is the north star for UX. The setup wizard should take a user from zero to publishing in under 5 minutes.
+- **Glassmorphism UI** is the design system. Every new component should follow the existing Liquid Glassmorphism aesthetic (frosted glass, backdrop blur, subtle gradients).
+- **AI with brand memory** — The AI should learn the user's brand voice, tone, and style over time. Brand memory is not a one-time configuration; it evolves with every post.
+- **Growth Intelligence** means actionable insights, not just vanity metrics. Every chart, recommendation, and report should answer "what should I do next?"
+
 ---
 
-## Tech Stack
+## Article III — Technology Stack
 
 | Layer | Technology |
 |-------|-----------|
@@ -47,9 +90,17 @@ Aurora is an open-source AI Facebook Autopilot that follows the BYOB/BYOK model 
 | Deployment | Vercel (Nitro SSR preset) |
 | Testing | Vitest (unit tests for errors, validators, logger, repositories) |
 
+### Key Dependencies (from package.json)
+- `@heroicons/react`, `@hookform/resolvers`, `@radix-ui/*` (18+ primitives), `@supabase/supabase-js`, `@tailwindcss/vite`
+- `@tanstack/react-query`, `@tanstack/react-router`, `@tanstack/react-start`, `@tanstack/router-plugin`
+- `class-variance-authority`, `clsx`, `cmdk`, `date-fns`, `embla-carousel-react`
+- `lucide-react`, `next-themes`, `react-day-picker`, `react-hook-form`, `recharts`, `sonner`, `tailwind-merge`, `tailwindcss-animate`, `vaul`, `zod`
+
 ---
 
-## Architecture
+## Article IV — Architecture
+
+### Layer Architecture
 
 ```
 Route (UI) → Hook (state) → Service (business logic) → Repository (data access) → Supabase
@@ -69,7 +120,64 @@ Route (UI) → Hook (state) → Service (business logic) → Repository (data ac
 | **Errors** | `src/errors/` | Error hierarchy (AppError, ValidationError, AuthError, etc.). |
 | **Lib** | `src/lib/` | Legacy modules (config-store, crypto, setup-runner). Being migrated. |
 
-### Data Flow
+### Service Boundaries
+
+- **Routes** render UI and call hooks. No business logic.
+- **Hooks** manage component state and call services.
+- **Services** implement business logic, coordinate multiple repositories.
+- **Repositories** encapsulate Supabase queries. Each table has its own repository.
+- **Validators** use Zod for runtime type checking and input validation.
+
+### Setup Flow
+
+1. User creates Supabase project
+2. User opens Aurora Settings → enters credentials
+3. Credentials encrypted with passphrase, stored in localStorage
+4. "Run Setup" triggers `setup-runner.ts`:
+   - Verifies project access via Management API
+   - Runs SQL migrations (schema, RLS, RPCs)
+   - Creates storage bucket
+   - Pushes secrets to Supabase Vault
+   - Seeds Facebook page row
+   - Deploys Edge Function
+   - Schedules cron job via `pg_cron`
+5. Automation runs every minute via Edge Function
+
+### Worker Flow
+
+```
+pg_cron (every minute)
+    │
+    └── POST → aurora-worker Edge Function
+                │
+                ├── 1. Load active pages
+                ├── 2. Seed recurring jobs (plan_content, publish_due_posts, capture_engagement, compute_strategy)
+                ├── 3. Claim pending jobs (race-free via claim_jobs RPC)
+                └── 4. Process each job:
+                    ├── plan_content → AI generates briefs
+                    ├── publish_due_posts → Facebook Graph API
+                    ├── capture_engagement → Fetch metrics
+                    └── compute_strategy → Update insights
+```
+
+### Authentication Flow
+
+**Current (v1):**
+- No user authentication
+- Single user per project (BYOB model)
+- Security through project-level access control
+- Credentials encrypted at rest in localStorage
+
+**Future (with migration 003):**
+- Supabase Auth enabled
+- `user_id` column on all tables
+- RLS policies check `auth.uid()`
+- Backward-compatible: falls back to open access when no user logged in
+- Auth service + hooks available
+
+---
+
+## Article V — Data Flow
 
 ```
 Browser localStorage (encrypted credentials)
@@ -82,13 +190,130 @@ Browser localStorage (encrypted credentials)
     │
     └── /api/proxy (server-side TanStack route)
           └── Forwards to external APIs (Facebook, OpenAI, Supabase Management)
+
+User Browser
+    │
+    ├── Encrypted localStorage (AES-GCM)
+    │     └── Credentials (Supabase URL, keys, Facebook token)
+    │
+    ├── sessionStorage
+    │     └── Passphrase (cleared on tab close)
+    │
+    ├── React Query (TanStack Query)
+    │     └── Caches Supabase responses, auto-refresh
+    │
+    ├── Supabase Client (anon key)
+    │     ├── Direct queries (read/write)
+    │     └── Realtime subscriptions
+    │
+    └── /api/proxy (server-side)
+          └── Forwards API calls to:
+              ├── api.supabase.com (Management API)
+              ├── graph.facebook.com (Graph API)
+              ├── openrouter.ai / api.openai.com / etc.
+              └── *.supabase.co (user's project)
 ```
 
 ---
 
-## Completed Phases
+## Article VI — Folder Structure
 
-### Phase 1 ✅ — Foundation & Security
+```
+src/
+ ├── components/        # Reusable UI components (glassmorphism design system)
+ │   ├── ui/           # shadcn/ui primitives
+ │   ├── glass/        # Glassmorphism design components
+ │   ├── layout/       # AppShell, sidebar, navigation
+ │   └── facebook/     # Facebook post preview
+ │   └── charts/
+ │       ├── LazyCharts.tsx              # React.lazy wrapper for analytics charts
+ │       └── AnalyticsChartsInner.tsx    # Actual recharts components (lazy loaded)
+ │
+ ├── features/          # Feature-specific UI panels
+ │   ├── settings/     # Settings forms (secrets, providers, brand, setup)
+ │   └── schedule/     # WeekGrid, TimelineList, BriefEditor
+ │
+ ├── hooks/             # React hooks (data fetching, auth, compose, schedule)
+ │   ├── useAuroraQuery.ts  # Data queries (delegates to services ONLY)
+ │   ├── useCompose.ts      # Compose page state & logic
+ │   ├── useSchedule.ts     # Schedule page state & logic + quickTimeAdjust
+ │   ├── useAuth.ts         # Authentication state
+ │   └── useRealtime.ts     # Supabase Realtime subscriptions (via createUserClient)
+ │
+ ├── services/          # Business logic layer
+ │   ├── base.ts                             # BaseService with logging
+ │   ├── index.ts                            # Service exports
+ │   ├── supabase-factory.ts                 # Client factory (createUserClient)
+ │   ├── auth-service.ts                     # Auth operations
+ │   ├── dashboard-service.ts                # Dashboard aggregation
+ │   ├── brand-memory.service.ts             # Brand memory CRUD + auto-extract
+ │   ├── strategy.service.ts                 # AI content strategy: analyzePage, buildAnalysisPrompt, normalizeRecommendations, callLlm
+ │   ├── ai/
+ │   │   ├── ai.service.ts                   # AI text/image generation
+ │   │   └── providers/llm-providers.ts      # Provider base URLs
+ │   ├── publishing/publishing.service.ts    # Draft + publish ops (uses BriefRepository)
+ │   ├── schedule/schedule.service.ts        # Calendar logic + schedule data queries
+ │   ├── analytics/analytics.service.ts      # Analytics (uses BriefRepository)
+ │   ├── draft/draft.service.ts              # Draft CRUD (approve/reject/bulk)
+ │   ├── facebook/     # Facebook Graph API integration
+ │   ├── storage/      # File upload & storage
+ │   │
+ ├── repositories/      # Data access layer (Supabase queries)
+ │   ├── base.ts                             # BaseRepository + withPagination()
+ │   ├── brand-memory-repository.ts          # findByPageId, upsert, update
+ │   ├── strategy-repository.ts             # findByPage, insert, insertBatch, dismiss, loadInsights
+ │   ├── brief-repository.ts                 # 12 methods
+ │   ├── page-repository.ts
+ │   ├── post-repository.ts
+ │   ├── engagement-repository.ts
+ │   ├── system-event-repository.ts
+ │   └── usage-repository.ts
+ │
+ ├── validators/        # Zod validation schemas (11 exported)
+ │
+ ├── types/             # Shared TypeScript interfaces
+ │   └── index.ts       # Page, Brief, Post, EngagementSnapshot, Job, AiUsage, SystemEvent, StrategyInsight, StrategyRecommendation, BrandMemory
+ │
+ ├── logger/            # Structured logging (debug/info/warn/error) + createLogger()
+ │   └── index.ts
+ │
+ ├── errors/            # Error hierarchy (AppError, ValidationError, AuthError, RateLimitError, etc.)
+ │   └── index.ts
+ │
+ ├── routes/            # TanStack Router routes (thin UI layer)
+ │   ├── index.tsx     # Dashboard
+ │   ├── compose.tsx   # Post composer
+ │   ├── schedule.tsx  # Content calendar
+ │   ├── drafts.tsx    # Draft approval queue
+ │   ├── analytics.tsx # Engagement analytics
+ │   ├── settings.tsx  # Configuration hub
+ │   └── api/proxy.ts  # CORS-bypass proxy with rate limiting, SSRF protection, Zod validation
+ │
+ ├── features/                                # Feature components (settings, schedule, brand memory)
+ │
+ ├── components/
+ │   ├── OptimizedImage.tsx                  # Lazy, fade-in, shimmer placeholder
+ │   └── charts/
+ │
+ └── lib/               # Legacy modules (being migrated)
+     ├── config-store.ts   # Encrypted localStorage config
+     ├── crypto.ts         # AES-GCM browser crypto
+     ├── edge-functions.ts # Edge function bundles (worker + manage-setup)
+     ├── setup-runner.ts   # Supabase project provisioning (SQL injection fixed, parameterized queries)
+     ├── management-api.ts # Supabase Management API wrapper
+     ├── migrations.ts     # Database migrations
+     └── manage-setup-client.ts # Client for manage-setup edge function
+
+supabase/functions/
+ ├── aurora-worker/index.ts              # Background planner/publisher/analytics
+ └── manage-setup/index.ts               # Secure setup ops (bucket mgmt, verification)
+```
+
+---
+
+## Article VII — Completed Milestones
+
+### Phase 1 ✅ — Foundation & Security (Q2 2026)
 
 | Change | Details |
 |--------|---------|
@@ -105,7 +330,7 @@ Browser localStorage (encrypted credentials)
 | Dependency cleanup | Removed `package-lock.json`, removed unused `motion` package |
 | Supabase factory | `supabase-factory.ts` — Cached client creation |
 
-### Phase 2 ✅ — Architecture Stabilization
+### Phase 2 ✅ — Architecture Stabilization (Q2 2026)
 
 | Change | Details |
 |--------|---------|
@@ -122,7 +347,7 @@ Browser localStorage (encrypted credentials)
 | README update | Development guide, migration guide, roadmap |
 | TypeScript | Zero errors (`bun run tsc --noEmit`) |
 
-### Phase 3 ✅ — Production Hardening & Performance Upgrade
+### Phase 3 ✅ — Production Hardening & Performance Upgrade (Q2 2026)
 
 | Priority | Change | Details |
 |----------|--------|---------|
@@ -135,7 +360,7 @@ Browser localStorage (encrypted credentials)
 | MEDIUM | Frontend rendering | `React.memo` on `DraftCard` component to prevent re-renders when search/bulk-selection changes. |
 | MEDIUM | Testing expansion | 51 tests (from 33): added `ScheduleService` tests (7 tests for generateWeekDays/nextSuggestedSlot), `ProxyRequestSchema` validation tests (11 tests for schema + host allowlist logic). |
 
-### Phase 2.5 ✅ — Stabilization Before Scaling
+### Phase 2.5 ✅ — Stabilization Before Scaling (Q2 2026)
 
 | Area | Change | Details |
 |------|--------|---------|
@@ -153,7 +378,7 @@ Browser localStorage (encrypted credentials)
 | Testing | Vitest infrastructure | `vitest.config.ts`, 4 test files, 33 tests covering errors, validators, logger, repository pagination |
 | Validation | Missing schemas added | `PostSchema`, `EngagementSnapshotSchema`, `WorkerStatusSchema`, defaults for `ProvidersSchema` |
 
-### Phase 3.5 ✅ — Production Hardening
+### Phase 3.5 ✅ — Production Hardening (Q2 2026)
 
 | Area | Change | Details |
 |------|--------|---------|
@@ -166,7 +391,7 @@ Browser localStorage (encrypted credentials)
 | Auth finalization | Migration 5 defaults | `user_id NOT NULL` enforced when no existing nulls; Migration 3's user-isolation is now the default path |
 | Cleanup | Dead imports removed | `logger` from setup-runner/ai.service; `AppError` from user-supabase; `subDays` from useAuroraQuery; `loadInstallStatus` from SetupCard/useCompose; `GlassPanel`/`GlassInput` from drafts; `ViewMode` from schedule; `isSameDay` from schedule.service; `toast` from compose |
 
-### Phase 4 ✅ — Facebook Growth Intelligence
+### Phase 4 ✅ — Facebook Growth Intelligence (Q2–Q3 2026)
 
 #### Brand Memory System ✅
 
@@ -222,70 +447,7 @@ Browser localStorage (encrypted credentials)
 
 ---
 
-
-
-## File Manifest (All Source Files)
-
-```
-src/
- ├── types/index.ts                          # Shared interfaces
- ├── logger/index.ts                         # Structured logging + createLogger()
- ├── errors/index.ts                         # Error hierarchy + RateLimitError
- ├── validators/index.ts                     # Zod schemas (11 exported)
-  ├── repositories/
-  │   ├── base.ts                             # BaseRepository + withPagination()
-  │   ├── brand-memory-repository.ts          # findByPageId, upsert, update
-  │   ├── strategy-repository.ts             # findByPage, insert, insertBatch, dismiss, loadInsights
-  │   ├── brief-repository.ts                 # 12 methods
-  │   ├── page-repository.ts
-  │   ├── post-repository.ts
-  │   ├── engagement-repository.ts
-  │   ├── system-event-repository.ts
-  │   └── usage-repository.ts
- ├── services/
- │   ├── base.ts                             # BaseService with logging
- │   ├── index.ts                            # Service exports
- │   ├── supabase-factory.ts                 # Client factory (createUserClient)
-  │   ├── auth-service.ts                     # Auth operations
-  │   ├── brand-memory.service.ts             # Brand memory CRUD + auto-extract
-  │   ├── strategy.service.ts                # AI content strategy: analyzePage, buildAnalysisPrompt, normalizeRecommendations, callLlm
-  │   ├── dashboard-service.ts                # Dashboard aggregation
- │   ├── ai/
- │   │   ├── ai.service.ts                   # AI text/image generation
- │   │   └── providers/llm-providers.ts      # Provider base URLs
- │   ├── publishing/publishing.service.ts    # Draft + publish ops (uses BriefRepository)
- │   ├── schedule/schedule.service.ts        # Calendar logic + schedule data queries
- │   ├── analytics/analytics.service.ts      # Analytics (uses BriefRepository)
- │   └── draft/draft.service.ts              # Draft CRUD (approve/reject/bulk)
- ├── hooks/
- │   ├── useAuth.ts                          # Auth state hook
- │   ├── useRealtime.ts                      # Realtime subscriptions (via createUserClient)
- │   ├── useCompose.ts                       # Compose hook (extracted)
- │   ├── useSchedule.ts                      # Schedule hook + quickTimeAdjust
- │   └── useAuroraQuery.ts                   # Data queries (delegates to services ONLY)
- ├── components/
- │   ├── OptimizedImage.tsx                  # Lazy, fade-in, shimmer placeholder
- │   └── charts/
- │       ├── LazyCharts.tsx                  # React.lazy wrapper for analytics charts
- │       └── AnalyticsChartsInner.tsx        # Actual recharts components (lazy loaded)
- ├── features/                                # Feature components
- ├── routes/                                  # TanStack Router (thin UI only)
- └── lib/                                     # Legacy + helper modules
-     ├── config-store.ts                     # Encrypted credential store
-     ├── crypto.ts                           # AES-GCM browser crypto
-     ├── edge-functions.ts                   # Edge function bundles (worker + manage-setup)
-     └── manage-setup-client.ts              # Client for manage-setup edge function
-supabase/functions/
- ├── aurora-worker/index.ts                  # Background planner/publisher/analytics
- └── manage-setup/index.ts                   # Secure setup ops (bucket mgmt, verif)
-ARCHITECTURE.md                              # Architecture docs
-AI_CONTEXT.md                                # This file
-vitest.config.ts                             # Vitest configuration
-```
-
----
-
-## Security Posture
+## Article VIII — Security Posture
 
 | Concern | Status |
 |---------|--------|
@@ -308,9 +470,21 @@ vitest.config.ts                             # Vitest configuration
 | TypeScript strict mode | ENABLED — `strict: true`, `noUnusedLocals`, `noUnusedParameters` |
 | Auth isolation default | SET — Migration 5 enables user isolation by default (safe NOT NULL) |
 
+### Additional Security Measures (from ARCHITECTURE.md)
+
+- Credentials encrypted with AES-GCM (PBKDF2, 200k iterations)
+- Passphrase stored only in sessionStorage (cleared on tab close)
+- `service_role` key used only during setup (via Management API)
+- Production uses anon key only
+- Supabase Vault stores secrets for Edge Function
+- CSP headers set on all responses
+- RLS policies isolate user data (when auth enabled)
+- Parameterized queries prevent SQL injection
+- Facebook tokens never exposed in browser URLs (proxied server-side)
+
 ---
 
-## Production Blocker Fixes Completed
+## Article IX — Production Blocker Fixes
 
 | Blocker | Fix | Test Coverage |
 |---------|-----|---------------|
@@ -320,7 +494,9 @@ vitest.config.ts                             # Vitest configuration
 | Destructive actions without confirmation | `ConfirmDialog` (existing component) wraps single and bulk reject; user must confirm before action executes | UI verified with confirm/cancel flow |
 | `dismissAll` before `insertBatch` loses data on failure | Reversed order: `insertBatch` runs first, `dismissAll` runs only after successful insert | 2 tests verify execution order + failure isolation |
 
-## Remaining Risks (Next Agent Priority)
+---
+
+## Article X — Remaining Risks
 
 | Risk | Severity | Recommendation |
 |------|----------|---------------|
@@ -339,80 +515,359 @@ vitest.config.ts                             # Vitest configuration
 
 ---
 
-## Development Rules
+## Article XI — Development Rules (Ground Rules for Execution)
 
-- **Do NOT bypass the service layer** — Hooks call services, services call repositories
-- **Do NOT put business logic in routes** — Routes render UI and call hooks only
-- **Repositories are the ONLY layer that queries Supabase** — No direct `.from()` calls outside repositories
-- **Maintain BYOB/BYOK philosophy** — Users own their data; never hardcode credentials
-- **Update ARCHITECTURE.md for structural changes** — Keep docs in sync
-- **Commit clean changes** — One conceptual change per commit
-- **Run `bun run tsc --noEmit` before committing** — Zero errors required
-- **Run `bun run test` before committing** — All tests must pass
-- **Add Zod validation for all input boundaries** — Routes, services, and setup
+These are the absolute, non-negotiable rules for every AI agent working on Aurora:
 
----
-
-## Product Direction
-
-**Aurora is a Facebook-first platform.** Build Facebook dominance before any multi-platform expansion. Do NOT implement Instagram, LinkedIn, TikTok, or Twitter/X integrations.
-
-Phase 4 focus: **Facebook Growth Intelligence**. Keep architecture flexible for future platforms (prefer abstractions over hard-coded Facebook logic) but do not add any other platform code.
-
----
-
-## Recommended Next Tasks (Phase 4)
-
-### Priority Order
-
-1. **AI Content Strategy** ✅
-   - Strategy recommendations: `strategy_recommendations` table, `StrategyRepository`, `StrategyService.analyzePage()`, `buildAnalysisPrompt`, `callLlm` via proxyFetch — **DONE**
-   - Worker integration: `generate_strategy` job kind registered (stub, no cron) — **DONE**
-   - Dashboard UI: strategy recommendations panel with "Analyze" button — **DONE**
-   - Tests: 4 tests covering data transformation and prompt building — **DONE**
-
-2. **Facebook Automation Improvements**
-   - Smarter scheduling: honor timezone-aware windows; avoid scheduling during low-engagement hours detected by strategy insights
-   - Approval workflow: add review/reject step before publishing; notify user via in-app toast when posts await approval
-   - Failed job recovery: add "Retry" button in Settings → Worker Status for failed jobs; surface `last_error` clearly
-   - Publishing reliability: add pre-publish validation (page token still valid, image URL reachable, caption length within limits)
-
-3. **Analytics Upgrade**
-   - Content performance insights: per-post score (likes + comments×2 + shares×3), trend lines, best/worst performers
-   - Growth trends: follower growth proxy (reach + impressions over 7/30/90 day windows), weekly change indicators
-   - Engagement analysis: breakdown by day-of-week, hour, post type; heatmap visualization
-   - Actionable recommendations: "Post on Tuesdays at 10AM for 40% higher engagement" — surfaced directly on dashboard
-
-4. **Brand Memory System** ✅
-   - Build a `brand_memory` table storing: page identity descriptors, audience profile, top-performing content snippets, writing style samples — **DONE**
-   - Worker reads brand memory when generating briefs (inject into LLM context) — **DONE**
-   - UI page in Settings → Brand Profile to review/edit what the AI remembers — **DONE** (`BrandMemorySheet`)
-   - Auto-extract from successful posts: tone, length, common phrases, effective hashtags — **DONE** (daily recurring job + manual button)
-
-5. **User Proof / SaaS Readiness**
-   - Reports: weekly/monthly PDF/CSV export of content performance, growth metrics, publishing activity
-   - Growth dashboards: visual summary of key metrics (posts published, engagement rate, follower growth proxy, best content)
-   - Export: one-click CSV download for any analytics view
-   - Case-study friendly analytics: time-range comparisons (this month vs last month), highlight wins (best post, biggest growth day)
+1. **Do NOT bypass the service layer** — Hooks call services, services call repositories
+2. **Do NOT put business logic in routes** — Routes render UI and call hooks only
+3. **Repositories are the ONLY layer that queries Supabase** — No direct `.from()` calls outside repositories
+4. **Maintain BYOB/BYOK philosophy** — Users own their data; never hardcode credentials
+5. **Update this Constitution for structural changes** — Keep docs in sync
+6. **Commit clean changes** — One conceptual change per commit
+7. **Run `bun run tsc --noEmit` before committing** — Zero errors required
+8. **Run `bun run test` before committing** — All tests must pass
+9. **Add Zod validation for all input boundaries** — Routes, services, and setup
+10. **Never commit secrets** — `.env*` files are in `.gitignore`, only reference names in documentation
+11. **Never put tokens in frontend bundle** — All API keys accessed via browser localStorage (encrypted) or Supabase Edge Function secrets
+12. **Document where each variable lives** — See the three-tier credential model
+13. **Rotation** — Update credentials in Settings UI → re-save; for Edge Functions, re-run Setup Wizard
+14. **Test before deploy** — All tests must pass before any push to main
+15. **Update docs for every structural change** — This Constitution, ARCHITECTURE.md, and any relevant README
 
 ---
 
-## Commands Reference
+## Article XII — Coding Standards
 
-```bash
-bun install           # Install dependencies
-bun run dev           # Start dev server
-bun run build         # Production build (Vercel preset)
-bun run tsc --noEmit  # TypeScript check (REQUIRED before commit)
-bun run test          # Run Vitest (77 tests)
-bun run test:watch    # Vitest in watch mode
-bun run lint          # ESLint
-bun run format        # Prettier
+### General
+- TypeScript strict mode enabled (`strict: true`, `noUnusedLocals`, `noUnusedParameters`)
+- Zero `any` types — prefer `unknown` + type guards
+- Prefer `const` over `let`
+- Use `async/await` over raw promises
+- No `// eslint-disable-next-line` without justification comment
+- **DO NOT ADD comments in code** unless explicitly asked — code should be self-documenting
+
+### Imports
+- Group: 1) built-in/node, 2) external packages, 3) internal modules, 4) relative imports
+- Use path aliases from `tsconfig.json` (e.g., `@/services/...`)
+
+### Naming (see Article XIII for full conventions)
+
+### File Structure
+- One primary export per file (default export for routes, named exports for services/repositories/hooks)
+- Service files: `src/services/{domain}/{domain}.service.ts`
+- Repository files: `src/repositories/{entity}-repository.ts`
+- Hook files: `src/hooks/use{Feature}.ts`
+
+### Error Handling
+- Use the AppError hierarchy: `throw new ValidationError(...)`, `throw new AuthError(...)`, etc.
+- Never expose raw errors to users — use `sanitizeError()` utility
+- Always log errors with `createLogger(name).error(...)` before sanitizing
+
+### Logging
+- Use `createLogger(name)` factory for every module
+- Log levels: `debug` (development), `info` (normal ops), `warn` (recoverable), `error` (failure)
+- Include context object as second parameter: `log.info("msg", { key: val })`
+- Worker logging: JSON stdout format `{t, l, w, rid, msg, ...}` with per-invocation `requestId`
+
+### Routing
+- TanStack Router file-based routing in `src/routes/`
+- Server routes under `src/routes/api/` (e.g., `proxy.ts`)
+- Each route file is thin — call hooks, render UI, no business logic
+
+---
+
+## Article XIII — Naming Conventions
+
+| Entity | Convention | Example |
+|--------|-----------|---------|
+| **Types** | PascalCase noun | `Brief`, `Page`, `EngagementSnapshot` |
+| **Enums/Unions** | PascalCase | `BriefStatus`, `PostingMode`, `JobStatus` |
+| **Interfaces** | PascalCase (no `I` prefix) | `StrategyInsight`, `BrandMemory` |
+| **Repository classes** | PascalCase `{Entity}Repository` | `BriefRepository`, `PageRepository` |
+| **Repository methods** | camelCase verb | `findByPageId()`, `insertBatch()`, `dismissAll()` |
+| **Service classes** | PascalCase `{Domain}Service` | `StrategyService`, `DraftService` |
+| **Service methods** | camelCase verb | `analyzePage()`, `buildLlmContext()` |
+| **Hooks** | camelCase `use{Feature}` | `useAuth`, `useCompose`, `useRealtime` |
+| **Routes** | kebab-case file names | `compose.tsx`, `drafts.tsx`, `analytics.tsx` |
+| **Components** | PascalCase | `OptimizedImage`, `DraftCard`, `BrandMemorySheet` |
+| **Constants** | UPPER_SNAKE_CASE | `CIRCUIT_THRESHOLD`, `CIRCUIT_COOLDOWN_MS` |
+| **Environment variables** | UPPER_SNAKE_CASE prefixed `FBAI_` | `FBAI_SUPABASE_URL`, `FBAI_AI_API_KEY` |
+| **Database tables** | snake_case | `content_briefs`, `engagement_snapshots`, `brand_memory` |
+| **Migrations** | numeric prefix | `001_initial_schema.sql`, `003_add_auth.sql` |
+| **Edge Functions** | kebab-case | `aurora-worker`, `manage-setup` |
+| **Zod schemas** | PascalCase `{Entity}Schema` | `ProvidersSchema`, `PostSchema` |
+| **Error classes** | PascalCase ending in `Error` | `ValidationError`, `AuthError`, `RateLimitError` |
+
+---
+
+## Article XIV — API Design Rules
+
+### Internal Service APIs
+- Services accept plain parameters, not request objects
+- Services return typed data, not Supabase responses
+- Services throw typed errors (AppError hierarchy), never raw errors
+- Services use `BaseService` for logging
+
+### Repository APIs
+- Each table has exactly one repository
+- Repositories accept typed parameters and return typed responses
+- All queries use `withPagination()` where applicable
+- Never expose Supabase client from repositories — consumers get typed data only
+
+### External API Proxy (`/api/proxy`)
+- Accepts `POST` requests with `ProxyRequestSchema.strict()` validation
+- Validates: `url` (in allowlist), `method`, `headers`, `body`
+- Security: SSRF protection (private IP blocklist), rate limiting (120/min per IP sliding window), response size cap (10MB), HTTPS enforcement for non-supabase.co targets
+- Logs every request via `createLogger("api/proxy")`
+
+### Worker APIs
+- Edge Function invoked by `pg_cron` via HTTP POST
+- All secrets from environment variables (pushed via Setup Wizard)
+- Structured JSON stdout logging with `requestId` correlation
+- Circuit breaker: 3 failures in 5 min = cooldown per provider
+- Heartbeat: lease renewal every 30s during long tasks
+
+---
+
+## Article XV — Database Strategy
+
+### Migrations Applied
+| Migration | Purpose |
+|-----------|---------|
+| Migration 1 | Initial schema (content_briefs, posts, engagement_snapshots, pages, jobs, ai_usage, system_events) |
+| Migration 2 | RLS policies, RPCs (claim_jobs, complete_job, fail_job) |
+| Migration 3 | Auth — user_id columns, auth-aware RLS, backward-compatible |
+| Migration 4 | Performance indexes (7 new indexes) |
+| Migration 5 | Schema version bump, system_events index, safe NOT NULL on user_id |
+| Migration 6 | Brand memory table |
+| Migration 7 | Strategy recommendations table + CHECK constraint |
+
+### Tables Created
+| Table | Purpose |
+|-------|---------|
+| `content_briefs` | Post drafts with status lifecycle (draft→approved→scheduled→published) |
+| `posts` | Published post records with Facebook post IDs |
+| `engagement_snapshots` | Time-series engagement metrics (likes, comments, shares, reach, impressions) |
+| `pages` | Facebook page configuration and posting mode |
+| `jobs` | Background job queue with retry and lease system |
+| `ai_usage` | AI provider token usage and cost tracking |
+| `system_events` | Structured event log for monitoring and circuit breaker |
+| `brand_memory` | Per-page brand identity descriptors, writing style, tone, hashtags, content snippets |
+| `strategy_recommendations` | AI-generated content strategy recommendations with priority and status |
+
+### Key Constraints
+- `strategy_recommendations.priority` — `CHECK (priority >= 0 AND priority <= 10)`
+- `brand_memory.page_id` — unique per page_id
+- `jobs.idempotency_key` — unique index prevents duplicate job creation
+- `posts.idempotency_key` — unique index prevents duplicate publishing
+
+### Query Rules
+- Parameterized queries everywhere (no string interpolation in SQL)
+- Indexed columns: status, slot_start, idempotency_key, captured_at, called_at, category+created_at
+- Migrations are idempotent — `IF NOT EXISTS` / safe re-runs
+- Schema version tracked in `schema_version` table
+
+---
+
+## Article XVI — State Management
+
+### Server State (Supabase)
+- TanStack Query (React Query v5) for all server data
+- QueryClient defaults: `staleTime: 30s`, `gcTime: 5min`, `retry: 1`, `refetchOnWindowFocus: false`
+- Realtime subscriptions via `useRealtime` hook → `createUserClient()`
+
+### Client State
+- React state (`useState`/`useReducer`) for UI-local state
+- `sessionStorage` for passphrase (cleared on tab close)
+- `localStorage` for encrypted credentials (AES-GCM via `config-store.ts`)
+
+### React Query Keys
+- Follow `[{domain}, {entity}, ...params]` convention
+- Example: `['pages', pageId]`, `['analytics', pageId, { days }]`, `['brand-memory', pageId]`
+
+---
+
+## Article XVII — Authentication & Authorization
+
+### Current (BYOB Model)
+- No user accounts
+- Single user per Supabase project
+- Security via: project-level access (Supabase URL + anon key), encrypted localStorage, passphrase gate
+- RLS: open access (fallback mode) when auth not enabled
+
+### Optional Auth (Migration 3)
+- Supabase Auth enabled via Settings toggle
+- `user_id` column on all tables
+- RLS policies check `auth.uid()`
+- Backward-compatible: falls back to open access when no user logged in
+- Auth service: `auth-service.ts` + `useAuth.ts` hook
+
+---
+
+## Article XVIII — Error Handling
+
+### Error Hierarchy (`src/errors/index.ts`)
+```
+AppError (base)
+ ├── ValidationError     — Zod validation failures
+ ├── AuthError           — Authentication/authorization failures
+ ├── DatabaseError       — Supabase query failures
+ ├── ExternalApiError    — Facebook/OpenAI/other API failures
+ ├── RateLimitError      — Proxy rate limiting (has retryAfterMs)
+ ├── ConfigError         — Missing or invalid configuration
+ └── UnknownError        — Unexpected errors
 ```
 
+### Rules
+- Services throw typed errors from the AppError hierarchy
+- Repositories catch Supabase errors and throw `DatabaseError`
+- Routes/hooks catch errors and display user-safe messages via `sanitizeError()`
+- Never expose raw error messages, stack traces, or internal details to users
+- All errors logged via `createLogger(name).error(...)` before sanitization
+- `sanitizeError()` returns context-aware messages per operation (approve/reject/save/delete/schedule/compose)
+
 ---
 
-## Deployment Architecture
+## Article XIX — Logging
+
+### Logger Factory
+```typescript
+import { createLogger } from '@/logger';
+const log = createLogger('my-module');
+log.info('Operation completed', { userId: 123 });
+```
+
+### Log Levels
+| Level | Usage |
+|-------|-------|
+| `debug` | Development details, verbose tracing |
+| `info` | Normal operations, state transitions |
+| `warn` | Recoverable issues, deprecations |
+| `error` | Failures requiring attention |
+
+### Worker Logging
+- JSON stdout format: `{t: timestamp, l: level, w: worker_name, rid: requestId, msg: message, ...context}`
+- Per-invocation `requestId` generated at start of each cron tick
+- Correlatable in Supabase Logs dashboard
+
+### Proxy Logging
+- Every request logged: `{method, url, status, size, duration, ip (truncated)}`
+- Rate limit hits logged as warnings
+
+---
+
+## Article XX — Monitoring & Observability
+
+### Current
+- System events table for token expiry, worker failures, circuit breaker state
+- Worker stdout logs correlated via requestId
+- Dashboard shows worker status (last run, today's runs)
+- No external monitoring service integrated
+
+### Needed (Phase 2 of Master Plan)
+- `/health` endpoint for uptime monitoring
+- Worker health check with Prometheus-style metrics
+- Sentry or similar error tracking
+- Usage dashboard in-app (Edge Function invocations, DB size, AI costs)
+- Alerts for: token expiry, worker down, circuit breaker tripped
+
+---
+
+## Article XXI — Performance Guidelines
+
+### Current Optimizations
+- React.lazy + Suspense for analytics charts (~300KB recharts deferred)
+- React.memo on DraftCard
+- QueryClient staleTime: 30s, gcTime: 5min, retry: 1
+- Migration 4 indexes for common query patterns
+- Pagination support in repositories (`withPagination()`)
+- Lazy loading for images (`OptimizedImage`)
+- Bundle splitting via TanStack Router (route-based)
+
+### Rules
+- Lazy-load heavy dependencies (charts, editors)
+- Memoize expensive renders (lists, cards)
+- Defer non-critical data (analytics, history) with `staleTime`
+- Index any column used in `WHERE`, `ORDER BY`, or `JOIN`
+- Never fetch entity lists without pagination
+- Prefer Supabase Realtime for live updates over polling
+
+### Performance Considerations (from ARCHITECTURE.md)
+- React Query caching (staleTime, refetchInterval)
+- Pagination support in all repositories
+- Lazy loading for images
+- Realtime subscriptions for live updates
+- Bundle splitting via TanStack Router (route-based)
+
+---
+
+## Article XXII — UX Principles
+
+- **Glassmorphism design system** — Every component follows Liquid Glassmorphism aesthetic (frosted glass with `/glass` components, backdrop blur, subtle gradients)
+- **One-click setup** — Setup Wizard takes user from zero to publishing in under 5 minutes
+- **Passphrase gate** — Dashboard shows "Unlock to continue" on fresh session; wrong passphrase shows error
+- **Empty states** — Every data view has a meaningful empty state with CTA
+- **Confirmation dialogs** — Destructive actions (reject, bulk operations) use `ConfirmDialog`
+- **Toasts** — All operations show success/failure toasts via `sonner`
+- **Responsive** — Mobile-friendly layout via Tailwind responsive utilities
+- **Dark mode** — Supported via `next-themes`
+- **Progressive disclosure** — Complex features (brand memory, strategy) shown in expandable sheets/panels
+- **Status badges** — Visual indicators for brief statuses (draft/approved/scheduled/published/failed)
+
+---
+
+## Article XXIII — Component Standards
+
+### Component Types
+| Type | Location | Purpose |
+|------|----------|---------|
+| **Primitives** | `src/components/ui/` | shadcn/ui wrappers (Button, Input, Dialog, etc.) |
+| **Glass components** | `src/components/glass/` | Glassmorphism design components (GlassPanel, GlassCard, GlassInput) |
+| **Layout** | `src/components/layout/` | AppShell, sidebar, navigation |
+| **Feature** | `src/features/` | Feature-specific panels (SettingsHub, WeekGrid, BrandMemorySheet) |
+| **Charts** | `src/components/charts/` | Analytics charts (LazyCharts, AnalyticsChartsInner) |
+| **Optimized** | `src/components/` | Generic optimized components (OptimizedImage) |
+
+### Rules
+- Components are pure UI — no business logic, no direct Supabase calls
+- Components receive data via props from hooks
+- Use shadcn/ui primitives for standard UI elements
+- Create glass variants for Aurora-specific styling
+- `React.forwardRef` for reusable form components
+- Default exports for route components, named exports for everything else
+
+---
+
+## Article XXIV — Testing Strategy
+
+### Test Infrastructure
+- **Runner:** Vitest (configured in `vitest.config.ts`)
+- **Count:** 77 tests (expanded from 33)
+- **Pattern:** `*.test.ts` alongside source files
+
+### Test Coverage Areas
+| Area | Tests | Details |
+|------|-------|---------|
+| Errors | 6 | AppError hierarchy, typed error classes |
+| Validators | 11+ | ProxyRequestSchema, PostSchema, EngagementSnapshotSchema, WorkerStatusSchema, defaults |
+| Logger | 4 | Structured logging, createLogger factory |
+| Repositories | 2 | BaseRepository pagination (`withPagination()`) |
+| Strategy service | 14 | brand memory injection, empty history, average score, top-post ranking, zero-score exclusion, valid JSON output, normalizeRecommendations (6), error sanitization (5), token expiry detection (5), transaction safety (2) |
+| ScheduleService | 7 | generateWeekDays, nextSuggestedSlot |
+| Proxy schema | 11 | Validation, host allowlist logic |
+
+### Rules
+- Tests must pass before every commit (`bun run test`)
+- Tests are unit tests — no integration or E2E tests currently
+- Test pure functions directly (export them, don't force tests through private methods)
+- Mock external dependencies (Supabase, AI providers, Facebook API)
+- Add tests for: validation schemas, error edge cases, service logic, repository queries
+- New features require new tests — no exceptions
+
+---
+
+## Article XXV — CI/CD & Deployment Strategy
 
 ### CI/CD Pipeline
 
@@ -458,132 +913,6 @@ GitHub Repository (main branch)
 | **Rollback** | Vercel Dashboard → Deployments → click "..." → "Rollback to this deployment" |
 | **Silent mode** | `silent: true` — GitHub comments disabled for deployment status |
 
-### Environment Variable Map
-
-Aurora uses a **three-tier credential model** — understand where each variable lives before deploying.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  TIER 1: Vercel Build/Runtime (set in Vercel Dashboard)         │
-│  ─────────────────────────────────────────────────────────────── │
-│  Variables needed by Vite/Nitro at build time or SSR runtime.   │
-│  These are the ONLY vars required in Vercel Project Settings.   │
-├─────────────────────────────────────────────────────────────────┤
-│  TIER 2: Supabase Edge Function Secrets (set via Setup Wizard)  │
-│  ─────────────────────────────────────────────────────────────── │
-│  Pushed to Supabase's internal secret store by the in-app       │
-│  Setup Wizard (setup-runner.ts). Deno.env.get() at runtime.     │
-│  NOT needed in Vercel Dashboard.                                │
-├─────────────────────────────────────────────────────────────────┤
-│  TIER 3: Browser localStorage (encrypted, set via Settings UI)  │
-│  ─────────────────────────────────────────────────────────────── │
-│  User enters these credentials in the Settings page. Stored     │
-│  encrypted with AES-GCM (passphrase in sessionStorage).         │
-│  NEVER sent to Vercel or Supabase env stores.                   │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-#### Tier 1 — Vercel Env Vars (set in Vercel Dashboard)
-
-| Variable | Source | Required | Notes |
-|----------|--------|----------|-------|
-| *(none)* | | | The frontend SSR app needs no Vercel env vars. Supabase credentials are user-provided via the browser UI. |
-
-The app reads all Supabase, Facebook, and AI credentials from encrypted browser localStorage (set in Settings page). No Vercel env vars are required at build time or SSR runtime.
-
-#### Tier 2 — Supabase Edge Function Secrets (pushed by Setup Wizard)
-
-These are pushed to `supabase/functions/aurora-worker` secrets at setup time, NOT set in Vercel.
-
-| Variable | Required | Default | Purpose |
-|----------|----------|---------|---------|
-| `FBAI_SUPABASE_URL` | Yes | — | Supabase project URL for worker DB access |
-| `FBAI_SUPABASE_SERVICE_ROLE_KEY` | Yes | — | Service role key for worker DB access |
-| `FBAI_CRON_SECRET` | No | — | Shared secret for pg_cron → worker auth |
-| `FBAI_FB_PAGE_TOKEN` | Yes | — | Facebook long-lived page access token |
-| `FBAI_AI_API_KEY` | No | — | LLM provider API key |
-| `FBAI_LLM_PROVIDER` | No | `"openrouter"` | Default LLM provider |
-| `FBAI_LLM_MODEL` | No | `"meta-llama/llama-3.3-70b-instruct:free"` | Default LLM model |
-| `FBAI_LLM_BASE_URL` | No | provider default | Custom LLM base URL |
-| `FBAI_IMAGE_PROVIDER` | No | `"pollinations"` | Default image provider |
-| `FBAI_IMAGE_MODEL` | No | `"flux"` | Default image model |
-| `FBAI_IMAGE_API_KEY` | No | — | Image provider API key (DALL-E) |
-
-These are set automatically when the user completes the in-app Setup Wizard.
-
-**Important:** The same env vars are also needed for the `manage-setup` Edge Function:
-| Variable | Required | Notes |
-|----------|----------|-------|
-| `SUPABASE_URL` | Yes | Set manually in Supabase Dashboard → Edge Functions → manage-setup → Secrets |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Same as above |
-
-#### Tier 3 — Browser localStorage Credentials (set via Settings UI)
-
-| Key (in SecretsSchema) | Encrypted in localStorage | Purpose |
-|------------------------|--------------------------|---------|
-| `supabaseUrl` | Yes | Supabase project URL for client SDK |
-| `supabaseAnonKey` | Yes | Supabase anon/public key for client SDK |
-| `supabaseServiceKey` | Yes | Service role (legacy, no longer used at runtime) |
-| `supabasePAT` | Yes | Personal Access Token for Management API |
-| `facebookPageToken` | Yes | Facebook page access token |
-| `facebookPageId` | Yes | Facebook page ID |
-| `aiApiKey` | Yes | LLM provider API key |
-| `imageApiKey` | Yes | Image provider API key |
-| `encryptionKey` | Yes | AES-GCM key (base64, 32 bytes) |
-| `passphrase` | No (sessionStorage) | Cleared on tab close |
-
-These are NEVER set as Vercel env vars. They are entered once by the user in Settings → Credentials and persist across sessions.
-
-### Environment Variable Rules
-
-1. **Never commit secrets** — `.env*` files in `.gitignore`, only reference names in `AI_CONTEXT.md`
-2. **Never put tokens in frontend bundle** — All API keys accessed via browser localStorage (encrypted) or Supabase Edge Function secrets
-3. **Document where each variable lives** — See three-tier map above
-4. **Rotation** — Update credentials in Settings UI → re-save; for Edge Functions, re-run Setup Wizard
-
-### Pre-Deployment Checklist (Before First Vercel Import)
-
-Before importing the repo into Vercel, verify each item:
-
-| # | Item | Status | Instructions |
-|---|------|--------|-------------|
-| 1 | **GitHub remote correct** | ✅ | `origin = https://github.com/juyel-dev/direct-build.git` |
-| 2 | **main branch pushed** | ✅ | Latest commit: `d57b040` — "Setup GitHub Vercel continuous deployment" |
-| 3 | **Build passes locally** | ✅ | `bun run build` succeeds (Vite + Nitro/Vercel preset) |
-| 4 | **TypeScript zero errors** | ✅ | `tsc --noEmit` exits clean |
-| 5 | **All tests pass** | ✅ | 77/77 Vitest tests passing |
-| 6 | **No pending changes** | ✅ | `git status` clean |
-| 7 | **Framework detection** | ✅ | `vercel.json` sets `"framework": "vite"` — Vercel auto-detects Vite |
-| 8 | **Build command** | ✅ | `vercel-build` script in `package.json` → `bun run build` |
-| 9 | **SSR/Nitro output format** | ✅ | `vite.config.ts` forces `nitro.preset: "vercel"` — outputs `.vercel/output/` (native Vercel format) |
-| 10 | **Supabase project ready** | ⬜ | User must have Supabase project created (needed after deploy for Setup Wizard) |
-| 11 | **Facebook app + page token** | ⬜ | User must have Facebook Developer app + long-lived page token |
-| 12 | **AI provider API key** | ⬜ | User must have at least one AI provider key (OpenAI, OpenRouter, etc.) |
-| 13 | **`.vercel/output/` ignored** | ✅ | `.vercel/` is in `.gitignore` |
-| 14 | **No secrets in frontend bundle** | ✅ | All secrets accessed via localStorage or Edge Function secrets |
-| 15 | **Vercel account ready** | ⬜ | User must have Vercel account + GitHub OAuth connected |
-
-#### Post-Deploy Steps (after first Vercel deploy succeeds)
-
-1. Open `https://<project>.vercel.app/`
-2. Go to **Settings → Credentials** → enter Supabase URL + anon key
-3. Go to **Settings → Setup** → run Setup Wizard (pushes Edge Functions + secrets + cron)
-4. Go to **Settings → Facebook** → add page token and page ID
-5. Go to **Settings → AI Providers** → configure LLM and image provider
-6. Create a test post → verify it reaches Facebook page
-7. Verify analytics and strategy panels load data
-
-### Deployment Risks
-
-| Risk | Likelihood | Mitigation |
-|------|-----------|------------|
-| Bun not available in Vercel build image | Low | Bun is pre-installed on Vercel since Oct 2024; fallback: change to `npm run build` in `vercel.json` |
-| Missing Supabase credentials on first load | Certain (expected) | App shows Setup card instead of dashboard — user enters credentials in Settings |
-| Edge Function cold start delays | Medium | Worker has 30s timeout + heartbeat; cold start adds ~1-2s |
-| Facebook token expiry | Low | Worker detects code 190, creates system event, stops retries |
-| AI provider rate limits | Medium | `/api/proxy` rate-limited at 120/min; worker has circuit breaker (3 failures in 5 min = cooldown) |
-| Preview deployments expose unconfigured app | Low | Preview deploys same app — user must configure Supabase separately per preview |
-
 ### How Future Agents Should Deploy Changes
 
 1. **Make changes** — Follow Routes → Hooks → Services → Repositories flow
@@ -607,11 +936,495 @@ Before importing the repo into Vercel, verify each item:
    ```
 7. **Rollback** — If production issue, rollback via Vercel Dashboard (not git revert)
 
+### Deployment Risks
+
+| Risk | Likelihood | Mitigation |
+|------|-----------|------------|
+| Bun not available in Vercel build image | Low | Bun is pre-installed on Vercel since Oct 2024; fallback: change to `npm run build` in `vercel.json` |
+| Missing Supabase credentials on first load | Certain (expected) | App shows Setup card instead of dashboard — user enters credentials in Settings |
+| Edge Function cold start delays | Medium | Worker has 30s timeout + heartbeat; cold start adds ~1-2s |
+| Facebook token expiry | Low | Worker detects code 190, creates system event, stops retries |
+| AI provider rate limits | Medium | `/api/proxy` rate-limited at 120/min; worker has circuit breaker (3 failures in 5 min = cooldown) |
+| Preview deployments expose unconfigured app | Low | Preview deploys same app — user must configure Supabase separately per preview |
+
+### Pre-Deployment Checklist (Before First Vercel Import)
+
+| # | Item | Status | Instructions |
+|---|------|--------|-------------|
+| 1 | **GitHub remote correct** | ✅ | `origin = https://github.com/juyel-dev/direct-build.git` |
+| 2 | **main branch pushed** | ✅ | Latest commit: `d57b040` — "Setup GitHub Vercel continuous deployment" |
+| 3 | **Build passes locally** | ✅ | `bun run build` succeeds (Vite + Nitro/Vercel preset) |
+| 4 | **TypeScript zero errors** | ✅ | `tsc --noEmit` exits clean |
+| 5 | **All tests pass** | ✅ | 77/77 Vitest tests passing |
+| 6 | **No pending changes** | ✅ | `git status` clean |
+| 7 | **Framework detection** | ✅ | `vercel.json` sets `"framework": "vite"` — Vercel auto-detects Vite |
+| 8 | **Build command** | ✅ | `vercel-build` script in `package.json` → `bun run build` |
+| 9 | **SSR/Nitro output format** | ✅ | `vite.config.ts` forces `nitro.preset: "vercel"` — outputs `.vercel/output/` (native Vercel format) |
+| 10 | **Supabase project ready** | ⬜ | User must have Supabase project created (needed after deploy for Setup Wizard) |
+| 11 | **Facebook app + page token** | ⬜ | User must have Facebook Developer app + long-lived page token |
+| 12 | **AI provider API key** | ⬜ | User must have at least one AI provider key (OpenAI, OpenRouter, etc.) |
+| 13 | **`.vercel/output/` ignored** | ✅ | `.vercel/` is in `.gitignore` |
+| 14 | **No secrets in frontend bundle** | ✅ | All secrets accessed via localStorage or Edge Function secrets |
+| 15 | **Vercel account ready** | ⬜ | User must have Vercel account + GitHub OAuth connected |
+
+### Post-Deploy Steps (after first Vercel deploy succeeds)
+
+1. Open `https://<project>.vercel.app/`
+2. Go to **Settings → Credentials** → enter Supabase URL + anon key
+3. Go to **Settings → Setup** → run Setup Wizard (pushes Edge Functions + secrets + cron)
+4. Go to **Settings → Facebook** → add page token and page ID
+5. Go to **Settings → AI Providers** → configure LLM and image provider
+6. Create a test post → verify it reaches Facebook page
+7. Verify analytics and strategy panels load data
+
 ---
 
-## First Production Testing Checklist
+## Article XXVI — Environment Variables & Credential Model
 
-Run these steps in order after first Vercel deployment succeeds.
+Aurora uses a **three-tier credential model**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  TIER 1: Vercel Build/Runtime (set in Vercel Dashboard)         │
+│  ─────────────────────────────────────────────────────────────── │
+│  Variables needed by Vite/Nitro at build time or SSR runtime.   │
+│  These are the ONLY vars required in Vercel Project Settings.   │
+│  CURRENT: None required.                                        │
+├─────────────────────────────────────────────────────────────────┤
+│  TIER 2: Supabase Edge Function Secrets (set via Setup Wizard)  │
+│  ─────────────────────────────────────────────────────────────── │
+│  Pushed to Supabase's internal secret store by the in-app       │
+│  Setup Wizard (setup-runner.ts). Deno.env.get() at runtime.     │
+│  NOT needed in Vercel Dashboard.                                │
+├─────────────────────────────────────────────────────────────────┤
+│  TIER 3: Browser localStorage (encrypted, set via Settings UI)  │
+│  ─────────────────────────────────────────────────────────────── │
+│  User enters these credentials in the Settings page. Stored     │
+│  encrypted with AES-GCM (passphrase in sessionStorage).         │
+│  NEVER sent to Vercel or Supabase env stores.                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Tier 1 — Vercel Env Vars
+
+The frontend SSR app needs no Vercel env vars. Supabase credentials are user-provided via the browser UI.
+
+### Tier 2 — Supabase Edge Function Secrets (pushed by Setup Wizard)
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `FBAI_SUPABASE_URL` | Yes | — | Supabase project URL for worker DB access |
+| `FBAI_SUPABASE_SERVICE_ROLE_KEY` | Yes | — | Service role key for worker DB access |
+| `FBAI_CRON_SECRET` | No | — | Shared secret for pg_cron → worker auth |
+| `FBAI_FB_PAGE_TOKEN` | Yes | — | Facebook long-lived page access token |
+| `FBAI_AI_API_KEY` | No | — | LLM provider API key |
+| `FBAI_LLM_PROVIDER` | No | `"openrouter"` | Default LLM provider |
+| `FBAI_LLM_MODEL` | No | `"meta-llama/llama-3.3-70b-instruct:free"` | Default LLM model |
+| `FBAI_LLM_BASE_URL` | No | provider default | Custom LLM base URL |
+| `FBAI_IMAGE_PROVIDER` | No | `"pollinations"` | Default image provider |
+| `FBAI_IMAGE_MODEL` | No | `"flux"` | Default image model |
+| `FBAI_IMAGE_API_KEY` | No | — | Image provider API key (DALL-E) |
+
+Additional vars for `manage-setup` Edge Function:
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `SUPABASE_URL` | Yes | Set manually in Supabase Dashboard → Edge Functions → manage-setup → Secrets |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Same as above |
+
+### Tier 3 — Browser localStorage Credentials (set via Settings UI)
+
+| Key (in SecretsSchema) | Encrypted in localStorage | Purpose |
+|------------------------|--------------------------|---------|
+| `supabaseUrl` | Yes | Supabase project URL for client SDK |
+| `supabaseAnonKey` | Yes | Supabase anon/public key for client SDK |
+| `supabaseServiceKey` | Yes | Service role (legacy, no longer used at runtime) |
+| `supabasePAT` | Yes | Personal Access Token for Management API |
+| `facebookPageToken` | Yes | Facebook page access token |
+| `facebookPageId` | Yes | Facebook page ID |
+| `aiApiKey` | Yes | LLM provider API key |
+| `imageApiKey` | Yes | Image provider API key |
+| `encryptionKey` | Yes | AES-GCM key (base64, 32 bytes) |
+| `passphrase` | No (sessionStorage) | Cleared on tab close |
+
+### Environment Variable Rules
+
+1. **Never commit secrets** — `.env*` files in `.gitignore`, only reference names in this Constitution
+2. **Never put tokens in frontend bundle** — All API keys accessed via browser localStorage (encrypted) or Supabase Edge Function secrets
+3. **Document where each variable lives** — See three-tier map above
+4. **Rotation** — Update credentials in Settings UI → re-save; for Edge Functions, re-run Setup Wizard
+
+---
+
+## Article XXVII — Git Workflow & Branch Strategy
+
+### Branch Model
+- `main` — Production branch. Only merges to main trigger Vercel production deploy.
+- Feature branches — Created from `main`, merged back via PR (no direct pushes to main)
+- Branch naming: `feat/{description}`, `fix/{description}`, `chore/{description}`
+
+### Commit Conventions
+- Conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `perf:`
+- One conceptual change per commit
+- Example: `feat: add StrategyService.analyzePage with brand memory injection`
+
+### Pre-Merge Requirements
+- [ ] `bun run tsc --noEmit` — zero errors
+- [ ] `bun run test` — all tests pass
+- [ ] `bun run build` — build succeeds
+- [ ] This Constitution updated for structural changes
+- [ ] `ARCHITECTURE.md` updated for structural changes
+- [ ] Commits are clean (no WIP, no debug code, no commented-out code)
+
+### Vercel Integration
+- Push to non-main → Vercel Preview Deployment
+- Merge to main → Vercel Production Deployment
+- Auto-cancelation enabled for stale preview builds
+- Silent mode on GitHub deployment comments
+
+---
+
+## Article XXVIII — Code Review Checklist
+
+For every pull request, review:
+
+### Correctness
+- Does the change follow Routes → Hooks → Services → Repositories flow?
+- Are there any direct `.from()` calls outside repositories?
+- Is business logic in services, not routes or components?
+- Are Supabase queries parameterized?
+
+### Security
+- No secrets or tokens in frontend bundle
+- No hardcoded credentials
+- Input validation at all boundaries (Zod schemas)
+- SSRF protection for any new proxy routes
+- Rate limiting for any new public endpoints
+
+### Testing
+- Are new tests added for new functionality?
+- Do existing tests still pass?
+- Are edge cases covered (empty states, error states, rate limits)?
+
+### Performance
+- Are heavy components lazy-loaded?
+- Are queries paginated where needed?
+- Are indexes needed for new query patterns?
+- Are React.memo / useMemo applied to expensive renders?
+
+### Documentation
+- Is this Constitution updated for structural changes?
+- Is `ARCHITECTURE.md` updated for structural changes?
+- Are new environment variables documented?
+- Are new migrations documented?
+
+### Code Quality
+- Zero TypeScript errors in strict mode
+- No `any` types
+- No dead imports, unused variables, or commented-out code
+- Consistent naming (see Article XIII)
+- One primary export per file
+
+---
+
+## Article XXIX — Release Checklist
+
+### Before Any Release
+1. [ ] All pre-merge requirements met
+2. [ ] No known production blockers in "Remaining Risks"
+3. [ ] First Production Testing Checklist completed (for initial release)
+4. [ ] Edge Functions deployed and verified
+5. [ ] Migrations applied and verified
+6. [ ] Credentials flow verified (encrypt, decrypt, unlock)
+
+### Release Steps
+1. Merge feature branch to `main`
+2. Vercel auto-deploys production build
+3. Verify production URL loads correctly
+4. Run smoke tests:
+   - App loads without errors
+   - Credentials unlock works
+   - Setup Wizard runs
+   - Draft → Approve → Publish flow works
+   - Analytics and strategy panels render
+5. Monitor Vercel Dashboard for build/deploy errors
+
+### Rollback
+- Do NOT use `git revert` for deployment rollbacks
+- Use Vercel Dashboard → Deployments → "..." → "Rollback to this deployment"
+- Fix the issue in a new commit, then push to main
+
+---
+
+## Article XXX — Design Constraints for Future Optionality (Master Plan Section 3)
+
+These constraints ensure Aurora can expand to multi-platform, SaaS, or enterprise without rewrites.
+
+### Multi-Platform Architecture
+- **Service abstractions** — Facebook-specific logic is isolated in dedicated services (e.g., `services/facebook/`). Future platforms (Instagram, LinkedIn, TikTok, Twitter/X) get their own service directories.
+- **Repository pattern** — All data access goes through repositories. Platform-specific tables can coexist without affecting core schema.
+- **Provider pattern** — AI providers are already abstracted via `llm-providers.ts` and `ProvidersSchema`. Adding a new social platform follows the same pattern: types → validators → repository → service → UI.
+
+### SaaS Migration Readiness
+- **Three-tier credential model** — Already documented. Tier 2 (Edge Function secrets) and Tier 3 (browser storage) map cleanly to a server-side credential store.
+- **Vercel KV path** — The Migration Path to SaaS (Article XXXV) is pre-defined. Adding Vercel KV for credential storage requires no architectural changes — just a new `credential-repository.ts` that reads from KV instead of localStorage.
+- **Auth migrations** — Migration 3 (Supabase Auth) exists and is backward-compatible. Full SaaS auth just needs enabling + Stripe integration.
+
+### AI Provider Extensibility
+- **Adding a new provider:** Add to `AIProviderType` enum in `validators/`, add provider logic in `services/ai/`, update `defaultBaseUrl` map.
+- **Adding a new image provider:** Same pattern, separate config in `ProvidersSchema`.
+
+### Facebook API Versioning
+- Currently targeting Facebook Graph API v21.0
+- API version is configurable in service config, not hardcoded
+
+### Worker Extensibility
+- **Adding a new job kind:** Register the handler in the worker switch statement, add cron schedule via `pg_cron`, add repository for any new tables.
+- Job kinds currently registered: `plan_content`, `publish_due_posts`, `capture_engagement`, `compute_strategy`, `generate_strategy` (stub), `extract_brand_memory`
+
+---
+
+## Article XXXI — Master Task List (Master Plan Section 4)
+
+### Phase 1 ✅ — Foundation & Security
+- Error handling hierarchy
+- Structured logging
+- Validation layer (Zod)
+- Repository layer
+- Service layer
+- Type system
+- SQL injection fix
+- Facebook token security
+- Auth migration (optional)
+- Auth service + hook
+- Supabase client factory
+
+### Phase 2 ✅ — Architecture Stabilization
+- compose.tsx → useCompose hook refactor
+- schedule.tsx → useSchedule hook refactor
+- AiService, PublishingService, ScheduleService, AnalyticsService
+- CSP + security headers
+- Pagination support
+- ARCHITECTURE.md documentation
+- TypeScript zero errors
+
+### Phase 3 ✅ — Production Hardening
+- Service role removal from browser (manage-setup edge function)
+- Secure API proxy (rate limiting, SSRF protection, Zod validation, 10MB cap, HTTPS enforcement)
+- Layer consistency (DraftService, no direct repo calls from hooks)
+- Bundle optimization (React.lazy for charts, QueryClient tuning)
+- Image optimization (OptimizedImage component)
+- Database performance (Migration 4 indexes)
+- Frontend rendering (React.memo on DraftCard)
+- Testing expansion (51 tests)
+
+### Phase 2.5 ✅ — Stabilization Before Scaling
+- fetchWithTimeout() for all external calls
+- Atomic brief-level lock for duplicate publish prevention
+- Token in URL → Authorization header (worker)
+- useRealtime.ts → createUserClient()
+- useAuroraQuery.ts → AnalyticsService delegation
+- schedule.tsx architecture fixes
+- PublishingService → BriefRepository delegation
+- AnalyticsService → BriefRepository delegation
+- BriefRepository expansion (6 new methods)
+- RateLimitError class
+- createLogger() factory
+- Vitest infrastructure (4 test files, 33 tests)
+- Missing Zod schemas (Post, EngagementSnapshot, WorkerStatus)
+
+### Phase 3.5 ✅ — Production Hardening (Round 2)
+- Worker heartbeat / lease renewal (30s interval)
+- Worker circuit breaker (3 failures in 5 min per provider)
+- Worker structured JSON logging with requestId
+- Job completion metadata + exponential backoff retry
+- Migration 5: system_events index, safe NOT NULL on user_id
+- TypeScript strict mode (noUnusedLocals, noUnusedParameters)
+- Auth finalization (Migration 5 defaults)
+- Dead import cleanup
+
+### Phase 4 ✅ — Facebook Growth Intelligence
+
+#### Brand Memory System ✅
+- Migration 6: brand_memory table
+- BrandMemoryRepository (findByPageId, upsert, update)
+- BrandMemoryService (load, save, buildLlmContext, autoExtract)
+- Worker injection (loadBrandMemory into LLM prompt)
+- Settings UI (BrandMemorySheet)
+- PostRepository.findPublishedWithBriefs
+
+#### AI Content Strategy Foundation (Phase 4.1) ✅
+- Migration 7: strategy_recommendations table
+- StrategyRepository (findByPage, insert, insertBatch, dismiss, dismissAll, loadInsights)
+- StrategyService (analyzePage, buildAnalysisPrompt, callLlm, normalizeRecommendations)
+- Worker integration: generate_strategy job kind (stub)
+- Dashboard UI: strategy recommendations panel
+- 14 tests for strategy service
+- Intelligence Quality Pass: 12 fixes (BUG, PERFORMANCE, SAFETY, MAINTENANCE, DATA QUALITY, UX, OBSERVABILITY, RESILIENCE)
+
+### Phase 4.2 → Facebook Automation Improvements (NEXT)
+- Smarter scheduling: timezone-aware windows, avoid low-engagement hours
+- Approval workflow: review/reject step before publishing, in-app notification
+- Failed job recovery: "Retry" button in Settings → Worker Status
+- Publishing reliability: pre-publish validation (token valid, image reachable, caption length)
+
+### Phase 4.3 → Analytics Upgrade
+- Content performance insights: per-post score, trend lines, best/worst performers
+- Growth trends: follower growth proxy (reach + impressions), weekly change indicators
+- Engagement analysis: day-of-week/hour/post-type breakdown, heatmap
+- Actionable recommendations: "Post on Tuesdays at 10AM for 40% higher engagement"
+
+### Phase 4.4 → User Proof / SaaS Readiness
+- Reports: weekly/monthly PDF/CSV export
+- Growth dashboards: visual summary of key metrics
+- Export: one-click CSV download for analytics
+- Case-study friendly analytics: time-range comparisons, highlight wins
+
+### Phase 5+ → Multi-Platform & SaaS (Future)
+- Multi-platform support (Instagram, LinkedIn, TikTok, Twitter/X)
+- SaaS credential relay (Phase A)
+- Persistent credential storage / Vercel KV (Phase B)
+- Full SaaS auth & billing / Stripe (Phase C)
+- Move aurora-worker to Vercel as serverless/cron function
+- Remove BYOB settings entirely
+
+---
+
+## Article XXXII — Current Project State Snapshot
+
+**Date:** July 2026
+**Phase:** 4.1 (AI Content Strategy Foundation) — Complete
+**Previous Agents:** 3 (OpenCode)
+
+### Build Status
+| Metric | Value |
+|--------|-------|
+| Tests | 77/77 passing |
+| TypeScript errors | 0 (`tsc --noEmit`) |
+| Build | `bun run build` succeeds |
+| Lint | `bun run lint` passes |
+| Git status | Clean |
+| Last commit | `d57b040` — "Setup GitHub Vercel continuous deployment" |
+| Production deployed | No (Vercel import not yet connected) |
+
+### Architecture Health
+| Layer | Status |
+|-------|--------|
+| Routes | ✅ Thin UI — all logic extracted to hooks |
+| Hooks | ✅ Call services, no direct repo access |
+| Services | ✅ Business logic layer complete |
+| Repositories | ✅ All Supabase queries encapsulated |
+| Validators | ✅ Zod schemas for all input boundaries |
+| Logger | ✅ Structured logging + createLogger factory |
+| Errors | ✅ AppError hierarchy with sanitization |
+| Types | ✅ Complete interfaces for all entities |
+
+### Deployment Readiness
+| Item | Status |
+|------|--------|
+| Vercel GitHub Integration | Not yet connected — user must import repo via Vercel Dashboard |
+| Production URL | Not yet deployed — after import, first push deploys |
+| Preview Deployments | Enabled via vercel.json (auto-cancelation + silent mode) |
+| Build Command | `bun run build` (Vite + Nitro/Vercel preset) |
+| Vercel Env Vars Required | Zero — all credentials flow through browser localStorage + Supabase Edge Function secrets |
+| Framework Detection | Auto-detected as Vite (`"framework": "vite"` in vercel.json) |
+| Tests Passing | 77/77 (Vitest) |
+| TypeScript Errors | 0 (tsc --noEmit) |
+| Deployment Readiness | ✅ **Ready for Vercel import** — no blocking issues |
+
+---
+
+## Article XXXIII — Known BYOB Limitations
+
+These are architectural consequences of the Bring-Your-Own-Backend model. They are NOT bugs — they are design trade-offs that a future SaaS migration would address.
+
+| Limitation | Impact | Why It Exists |
+|-----------|--------|---------------|
+| **Credentials stored in browser** | If user clears localStorage, all credentials are lost. Must re-enter. | BYOB — no server-side user accounts; we cannot store keys on our server |
+| **No multi-device sync** | Credentials are per-browser. Cannot use Aurora from two devices without re-entering on each. | No backend to sync credentials — they're encrypted in browser storage |
+| **No user accounts or auth** | Anyone with the browser URL can access the app (no login screen). Passphrase is the only gate. | BYOB — each user owns their Supabase project; no shared auth system |
+| **Setup runs from the browser** | Setup requires the user's Supabase PAT in the browser. If the PAT is exposed, the Supabase project is at risk. | Management API calls require PAT — no server-side relay exists yet |
+| **Worker Edge Function costs** | `pg_cron` runs every minute — the worker consumes Supabase Edge Function credits even when idle | The worker polls every minute for due jobs; no event-driven trigger exists |
+| **No server-side AI key storage** | AI API keys are stored in encrypted browser localStorage, sent to `/api/proxy` per-request. Not available to the `aurora-worker` Edge Function. | Worker runs on Supabase, not Vercel — it cannot read browser localStorage |
+| **Worker cannot auto-generate strategy** | Strategy generation requires AI keys which live on the client. Worker can only serve cached recommendations. | AI keys are user-owned; the worker runs in Supabase without access to them |
+| **No push notifications** | Token expiry, failed jobs, and other critical events are logged to DB but never notified to user. | No push infrastructure (no service worker, no email, no webhook) |
+| **No usage monitoring** | User must check Supabase Dashboard for Edge Function invocations, DB size, API usage. No in-app billing or limits. | BYOB — costs are on the user's Supabase project |
+| **Cron depends on pg_cron + pg_net** | If these Supabase extensions are unavailable (older projects, restricted plans), the worker never fires. Silent failure. | `pg_cron` and `pg_net` are not available on all Supabase plans |
+| **No automated backups** | If user loses encrypted localStorage keys (passphrase forgotten), all credentials are unrecoverable. | AES-GCM with PBKDF2 — designed to be unrecoverable without the passphrase |
+
+---
+
+## Article XXXIV — Migration Path to SaaS
+
+If Aurora evolves from BYOB to a SaaS model, these are the architectural changes needed:
+
+### Phase A — Server-Side Credential Relay (minimal infra)
+
+Replace browser-to-Supabase direct PAT usage with a thin relay:
+
+1. **Add a Vercel server route** (e.g., `/api/manage-setup`) that proxies Management API calls. The relay authenticates with a server-side PAT (Vercel env var), so the browser never sees the PAT.
+2. **Remove `supabasePAT` from browser SecretsSchema** — PAT now lives only on the server.
+3. **Update `setup-runner.ts`** to call `/api/manage-setup` instead of directly calling `api.supabase.com`.
+
+**Benefits:** PAT never touches browser. Setup can run even if user clears localStorage.
+
+### Phase B — Persistent Credential Storage
+
+Add encrypted credential storage on Vercel's KV/store so users don't re-enter on every device:
+
+1. **Add Vercel KV** (or Supabase Vault) for server-side encrypted credential storage.
+2. **Add a simple auth flow** (magic link or passphrase-based) to associate credentials with a device.
+3. **Proxy `/api/proxy`** reads credentials from KV instead of relying on the browser sending them.
+
+**Benefits:** Multi-device sync. Credentials survive browser localStorage clear.
+
+### Phase C — Full SaaS Auth & Billing
+
+Complete authentication and user management:
+
+1. **Add user accounts** (Supabase Auth or Auth0).
+2. **Provision child Supabase projects** per user (or use a shared backend with RLS).
+3. **Add billing** (Stripe) — free tier vs paid plans based on posts/month, AI calls, analytics retention.
+4. **Remove BYOB Settings entirely** — credentials are managed server-side.
+5. **Move `aurora-worker` to Vercel** as a serverless/cron function so it can read credentials from the server-side KV store without needing Supabase Edge Function secrets.
+
+**Benefits:** Full SaaS experience. No credential management for users. Usage limits, billing, and monitoring built-in.
+
+---
+
+## Article XXXV — AI Handoff Protocol
+
+### For Every AI Agent Starting Work
+
+1. **READ THIS FILE FIRST** — The Project Constitution is the single source of truth.
+2. **Read `ARCHITECTURE.md`** — It contains architecture-specific details.
+3. **Read `src/types/index.ts`** — To understand data shapes.
+4. **Check `git log --oneline -10`** — Understand recent changes.
+5. **Check `git status`** — Identify any in-progress work.
+
+### Operating Rules
+- DO NOT modify this Constitution without ensuring no information is removed.
+- If you add a new structural element (service, repository, migration, route), update the relevant section(s).
+- If you discover a discrepancy between this document and the code, fix the code (or fix the doc, but the code wins).
+- Mark your work in the Handover Log at the end of this file.
+- Update the "Last Updated" date and agent count.
+
+### Communication
+- All decisions, trade-offs, and architectural changes must be logged here.
+- If you find a blocker not listed in "Remaining Risks," add it.
+- If you add a new section, update the Table of Contents.
+
+### Handover Log
+
+| Date | Agent | Work Done |
+|------|-------|-----------|
+| July 2026 | Agent 1 | Phase 1: Foundation & Security |
+| July 2026 | Agent 2 | Phase 2: Architecture Stabilization |
+| July 2026 | Agent 3 | Phase 3+4+4.1: Production Hardening, Brand Memory, Strategy |
+| July 2026 | Agent 4 | Created Project Constitution (merged AI_CONTEXT.md + ARCHITECTURE.md + Master Plan) |
+
+---
+
+## Article XXXVI — First Production Testing Checklist
 
 ### Phase 1 — App Load & Credentials (browser)
 
@@ -691,70 +1504,283 @@ Run these steps in order after first Vercel deployment succeeds.
 
 ---
 
-## Known BYOB Limitations
+## Article XXXVII — Commands Reference
 
-These are architectural consequences of the Bring-Your-Own-Backend model. They are NOT bugs — they are design trade-offs that a future SaaS migration would address.
-
-| Limitation | Impact | Why It Exists |
-|-----------|--------|---------------|
-| **Credentials stored in browser** | If user clears localStorage, all credentials are lost. Must re-enter. | BYOB — no server-side user accounts; we cannot store keys on our server |
-| **No multi-device sync** | Credentials are per-browser. Cannot use Aurora from two devices without re-entering on each. | No backend to sync credentials — they're encrypted in browser storage |
-| **No user accounts or auth** | Anyone with the browser URL can access the app (no login screen). Passphrase is the only gate. | BYOB — each user owns their Supabase project; no shared auth system |
-| **Setup runs from the browser** | Setup requires the user's Supabase PAT in the browser. If the PAT is exposed, the Supabase project is at risk. | Management API calls require PAT — no server-side relay exists yet |
-| **Worker Edge Function costs** | `pg_cron` runs every minute — the worker consumes Supabase Edge Function credits even when idle | The worker polls every minute for due jobs; no event-driven trigger exists |
-| **No server-side AI key storage** | AI API keys are stored in encrypted browser localStorage, sent to `/api/proxy` per-request. Not available to the `aurora-worker` Edge Function. | Worker runs on Supabase, not Vercel — it cannot read browser localStorage |
-| **Worker cannot auto-generate strategy** | Strategy generation requires AI keys which live on the client. Worker can only serve cached recommendations. | AI keys are user-owned; the worker runs in Supabase without access to them |
-| **No push notifications** | Token expiry, failed jobs, and other critical events are logged to DB but never notified to user. | No push infrastructure (no service worker, no email, no webhook) |
-| **No usage monitoring** | User must check Supabase Dashboard for Edge Function invocations, DB size, API usage. No in-app billing or limits. | BYOB — costs are on the user's Supabase project |
-| **Cron depends on pg_cron + pg_net** | If these Supabase extensions are unavailable (older projects, restricted plans), the worker never fires. Silent failure. | `pg_cron` and `pg_net` are not available on all Supabase plans |
-| **No automated backups** | If user loses encrypted localStorage keys (passphrase forgotten), all credentials are unrecoverable. | AES-GCM with PBKDF2 — designed to be unrecoverable without the passphrase |
+```bash
+bun install           # Install dependencies
+bun run dev           # Start dev server
+bun run build         # Production build (Vercel preset)
+bun run build:dev     # Dev build
+bun run tsc --noEmit  # TypeScript check (REQUIRED before commit)
+bun run test          # Run Vitest (77 tests)
+bun run test:watch    # Vitest in watch mode
+bun run lint          # ESLint
+bun run format        # Prettier
+npx vercel deploy --prebuilt --token <token>   # Manual deploy
+```
 
 ---
 
-## Migration Path to SaaS Credential Storage
+## Article XXXVIII — Extension Points
 
-If Aurora evolves from BYOB to a SaaS model, these are the architectural changes needed:
+### Adding a New Social Platform
+1. Create `src/services/{platform}/` with types and service
+2. Add provider config in `validators/`
+3. Update `migrations/` for new tables
+4. Create repository for data access
+5. Add platform-specific UI components
 
-### Phase A — Server-Side Credential Relay (minimal infra)
+### Adding a New AI Provider
+1. Add to `AIProviderType` enum in `validators/`
+2. Add provider logic in `services/ai/`
+3. Update `defaultBaseUrl` map
 
-Replace browser-to-Supabase direct PAT usage with a thin relay:
+### Adding a New Worker Job Kind
+1. Add handler to worker switch statement
+2. Add cron schedule via `pg_cron` in setup-runner
+3. Add repository for any new tables
+4. Add Zod schema for job payload validation
 
-1. **Add a Vercel server route** (e.g., `/api/manage-setup`) that proxies Management API calls. The relay authenticates with a server-side PAT (Vercel env var), so the browser never sees the PAT.
-2. **Remove `supabasePAT` from browser SecretsSchema** — PAT now lives only on the server.
-3. **Update `setup-runner.ts`** to call `/api/manage-setup` instead of directly calling `api.supabase.com`.
+---
 
-**Benefits:** PAT never touches browser. Setup can run even if user clears localStorage.
+## Schedule A — Type Definitions (`src/types/index.ts`)
 
-### Phase B — Persistent Credential Storage
+```typescript
+export type Json = Record<string, unknown>;
 
-Add encrypted credential storage on Vercel's KV/store so users don't re-enter on every device:
+export type Page = {
+  id: string;
+  fb_page_id: string | null;
+  fb_page_name: string;
+  default_brand_voice: string | null;
+  default_image_style: string | null;
+  default_posting_windows: { hour: number; minute: number }[] | null;
+  posting_mode: PostingMode;
+  max_posts_per_day: number;
+  ai_overrides: Json;
+  prompt_overrides: Json;
+  status: PageStatus;
+  created_at: string;
+};
 
-1. **Add Vercel KV** (or Supabase Vault) for server-side encrypted credential storage.
-2. **Add a simple auth flow** (magic link or passphrase-based) to associate credentials with a device.
-3. **Proxy `/api/proxy`** reads credentials from KV instead of relying on the browser sending them.
+export type PostingMode = "manual" | "hybrid" | "full_auto";
+export type PageStatus = "active" | "inactive";
 
-**Benefits:** Multi-device sync. Credentials survive browser localStorage clear.
+export type Brief = {
+  id: string;
+  page_id: string;
+  slot_start: string;
+  topic: string | null;
+  caption: string | null;
+  hashtags: string[] | null;
+  image_prompt: string | null;
+  image_url: string | null;
+  hook: string | null;
+  cta: string | null;
+  predicted_engagement_score: number | null;
+  approved_at: string | null;
+  status: BriefStatus;
+  created_at: string;
+  updated_at: string;
+};
 
-### Phase C — Full SaaS Auth & Billing
+export type BriefStatus = "draft" | "approved" | "scheduled" | "published" | "skipped" | "failed";
 
-Complete authentication and user management:
+export type Post = {
+  id: string;
+  page_id: string;
+  content_brief_id: string | null;
+  fb_post_id: string | null;
+  fb_permalink_url: string | null;
+  idempotency_key: string;
+  status: PostStatus;
+  published_at: string | null;
+  last_error: string | null;
+  created_at: string;
+};
 
-1. **Add user accounts** (Supabase Auth or Auth0).
-2. **Provision child Supabase projects** per user (or use a shared backend with RLS).
-3. **Add billing** (Stripe) — free tier vs paid plans based on posts/month, AI calls, analytics retention.
-4. **Remove BYOB Settings entirely** — credentials are managed server-side.
-5. **Move `aurora-worker` to Vercel** as a serverless/cron function so it can read credentials from the server-side KV store without needing Supabase Edge Function secrets.
+export type PostStatus = "pending" | "published" | "failed";
 
-**Benefits:** Full SaaS experience. No credential management for users. Usage limits, billing, and monitoring built-in.
+export type EngagementSnapshot = {
+  id: string;
+  post_id: string;
+  captured_at: string;
+  likes: number;
+  comments: number;
+  shares: number;
+  reactions: Json;
+  reach: number;
+  impressions: number;
+};
 
-### Status
+export type Job = {
+  id: string;
+  page_id: string | null;
+  kind: string;
+  payload: Json;
+  status: JobStatus;
+  attempts: number;
+  max_attempts: number;
+  priority: number;
+  scheduled_at: string;
+  lease_expires_at: string | null;
+  locked_by: string | null;
+  next_retry_at: string | null;
+  last_error: string | null;
+  idempotency_key: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
-- **Vercel GitHub Integration:** Not yet connected — user must import repo via Vercel Dashboard
-- **Production URL:** Not yet deployed — after import, first push deploys
-- **Preview Deployments:** Enabled via `vercel.json` GitHub settings (auto-cancelation + silent mode)
-- **Build Command:** `bun run build` (Vite + Nitro/Vercel preset), outputs native `.vercel/output/` format
-- **Vercel Env Vars Required:** Zero — all credentials flow through browser localStorage + Supabase Edge Function secrets
-- **Framework Detection:** Auto-detected as Vite (`"framework": "vite"` in vercel.json)
-- **Tests Passing:** 77/77 (Vitest)
-- **TypeScript Errors:** 0 (`tsc --noEmit`)
-- **Deployment Readiness:** ✅ **Ready for Vercel import** — no blocking issues
+export type JobStatus =
+  | "pending"
+  | "processing"
+  | "succeeded"
+  | "failed_retryable"
+  | "failed_terminal"
+  | "dead_letter";
+
+export type AiUsage = {
+  id: string;
+  page_id: string | null;
+  job_id: string | null;
+  provider: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  estimated_cost_usd: number;
+  called_at: string;
+};
+
+export type SystemEvent = {
+  id: string;
+  severity: "debug" | "info" | "warn" | "error";
+  category: string;
+  message: string;
+  metadata: Json;
+  created_at: string;
+};
+
+export type StrategyInsight = {
+  page_id: string;
+  window_days: number;
+  best_posting_hour: number | null;
+  best_topics: string[];
+  avg_engagement_rate: number | null;
+  computed_at: string;
+};
+
+export type StrategyRecommendation = {
+  id: string;
+  page_id: string;
+  recommendation_type: string;
+  recommendation_text: string;
+  reasoning: string;
+  priority: number;
+  related_content: Json;
+  generated_at: string;
+  status: "active" | "dismissed" | "applied";
+};
+
+export type BrandMemory = {
+  id: string;
+  page_id: string;
+  brand_descriptors: string[];
+  audience_profile: Json;
+  writing_style_notes: string;
+  effective_hashtags: string[];
+  top_content_snippets: Json[];
+  tone_guidelines: string;
+  avoided_topics: string[];
+  auto_extracted_at: string | null;
+  manually_edited_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+```
+
+---
+
+## Schedule B — Glossary
+
+| Term | Definition |
+|------|-----------|
+| **BYOB** | Bring Your Own Backend — user owns and provides their own Supabase project |
+| **BYOK** | Bring Your Own Keys — user provides their own API keys (AI, Facebook) |
+| **Glassmorphism** | UI design style using frosted glass effects (backdrop blur, transparency, subtle gradients) |
+| **Edge Function** | Supabase-hosted Deno serverless function (aurora-worker, manage-setup) |
+| **pg_cron** | PostgreSQL extension for scheduling recurring SQL/HTTP calls |
+| **pg_net** | PostgreSQL extension for making HTTP requests from SQL |
+| **Migration** | Sequential SQL change to database schema (numbered 1-7) |
+| **RLS** | Row-Level Security — PostgreSQL feature for per-row access control |
+| **PAT** | Supabase Personal Access Token — used for Management API calls |
+| **Service Role Key** | Supabase privileged key with full database access (server-side only) |
+| **Anon Key** | Supabase public key for client-side access (restricted by RLS) |
+| **Circuit Breaker** | Pattern that stops calls to a failing service after N failures in time window |
+| **Heartbeat** | Periodic lease renewal signal showing a worker is still processing |
+| **SSRF** | Server-Side Request Forgery — attack vector prevented by IP blocklist |
+| **CSP** | Content Security Policy — HTTP header for XSS prevention |
+| **Nitro** | Vite-based SSR framework used by TanStack Start |
+| **shadcn/ui** | Collection of copy-paste React UI components using Radix + Tailwind |
+| **Vercel KV** | Vercel's key-value storage (Future: for credential persistence) |
+
+---
+
+## Schedule C — FAQ
+
+**Q: Why Facebook-first?**
+A: Facebook remains the largest social platform by active users and the most important for business page management. Multi-platform support is planned for Phase 5+.
+
+**Q: Can I use Aurora with Instagram?**
+A: No. Not until Phase 5+. The architecture supports it (service abstractions, repository pattern), but no code exists yet.
+
+**Q: How do I migrate from BYOB to SaaS?**
+A: Follow Article XXXIV — Migration Path to SaaS. Phase A (credential relay) is the lightest lift. Phase C (full auth + billing) is the heaviest.
+
+**Q: Why does the Setup Wizard run from the browser?**
+A: BYOB model — the user's Supabase PAT is needed to provision their project. A server-side relay (Phase A of SaaS migration) would eliminate this.
+
+**Q: What happens if my Facebook token expires?**
+A: The worker detects error code 190, logs a `facebook_token_expired` system event, and marks the job as `failed_terminal` (no retries). You'll need to refresh the token in Settings → Facebook.
+
+**Q: Can I use Aurora without an AI API key?**
+A: Yes — you can manually write captions and upload images. AI generation is optional. Strategy generation requires AI keys.
+
+**Q: How often does the worker run?**
+A: Every 60 seconds via `pg_cron`. Each tick: seeds recurring jobs, claims pending jobs, processes up to N jobs.
+
+**Q: Are my credentials safe?**
+A: Yes — AES-GCM encrypted with PBKDF2 (200k iterations) in localStorage. Passphrase is in sessionStorage only (cleared on tab close). No credentials are sent to our servers. See Article VIII.
+
+**Q: Why no user accounts?**
+A: BYOB model — each user has their own Supabase project. Adding auth (Migration 3) is optional and backward-compatible.
+
+**Q: How do I contribute?**
+A: Follow Article XXVII (Git Workflow), Article XI (Development Rules), and ensure all tests pass. Submit a PR.
+
+**Q: What's the difference between `aurora-worker` and `manage-setup`?**
+A: `aurora-worker` is the background automation engine (runs every minute via pg_cron). `manage-setup` is a one-time-use edge function for secure bucket operations (no service role in browser).
+
+**Q: Can I run Aurora locally without Supabase?**
+A: No — Aurora requires a Supabase project for all data storage. The app has no offline mode.
+
+**Q: How do I reset everything?**
+A: Clear browser localStorage (credentials), drop the Supabase tables (or create a new project), and re-run Setup Wizard.
+
+**Q: What TypeScript version is used?**
+A: TypeScript strict mode with `noUnusedLocals` and `noUnusedParameters` enabled. Zero `any` types expected.
+
+---
+
+## Ratification
+
+This Constitution replaces `AI_CONTEXT.md` (the original AI handover context) as the single source of truth. It merges three documents:
+
+1. **AI_CONTEXT.md** (760 lines) — Operational context, completed work, architecture, security, deployment, risks
+2. **ARCHITECTURE.md** (201 lines) — Folder structure, data flow, setup flow, auth flow, worker flow, boundaries
+3. **Aurora Master Plan v2** — Core principles, product philosophy, design constraints, task list, ground rules
+
+All content from all three sources is preserved in full. No information has been removed or summarized.
+
+**Every AI agent MUST read this file first before any work.**
