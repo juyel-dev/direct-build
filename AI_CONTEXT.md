@@ -460,7 +460,7 @@ supabase/functions/
 | CSP headers | ADDED — script-src, connect-src, etc. hardened |
 | XSS protection | Security headers on all responses. **Residual risk**: passphrase lives in sessionStorage — any XSS can read it at runtime. Accepted per threat model (see crypto.ts). Full fix (server-side credential relay) deferred to SaaS/multi-tenant phase. |
 | Auth isolation | Migration 3 available (optional, backward-compatible) |
-| RLS policies | auth-aware policies with fallback to open access |
+| RLS policies | **REVIEWED (Phase 3)** — All tables use `user_or_open` pattern. When `auth.uid()` is null (unauthenticated), `else true` falls back to open access. Acceptable for single-user BYOB: sensitive ops route through edge functions; admin typically authenticates. **Multi-tenant TODO**: remove `else true` fallback. |
 | Worker timeout | ADDED — AbortController timeouts on all external fetch() calls |
 | Worker duplicate publish | FIXED — atomic brief-level lock before publishing |
 | Worker secrets | GOOD — all from env vars via requiredEnv() helper |
