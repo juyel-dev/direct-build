@@ -5,6 +5,9 @@ import { createLogger } from "../../logger";
 const log = createLogger("api/proxy");
 
 /* ─── Rate limiting (in-memory sliding window) ──────────────── */
+/* NOTE: In-memory Map resets on every Vercel cold start.
+   This is acceptable at current scale (120 req/min per IP has headroom).
+   For persistent rate limiting across cold starts, migrate to Vercel KV. */
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 120;

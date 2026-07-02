@@ -512,6 +512,7 @@ supabase/functions/
 | Worker cold starts | LOW | Deno Edge Function cold start can delay job processing by 1–2s |
 | No health endpoint | LOW | No `/health` or `/ready` endpoint for monitoring uptime |
 | lint timeout | INFO | ESLint configuration may have performance issues on Windows |
+| Proxy rate limiter resets on cold start | INFO | In-memory sliding window resets every Vercel cold start. 120 req/min per IP has headroom for current scale. Migrate to Vercel KV for persistence if needed. |
 
 ---
 
