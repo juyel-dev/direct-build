@@ -271,24 +271,6 @@ insert into public._migrations (id, name) values (2, 'automation_runtime') on co
 `,
   },
   {
-    id: 4,
-    name: "performance_indexes",
-    sql: `
--- Performance indexes for common query patterns
-create index if not exists idx_briefs_status on public.content_briefs (status) where status in ('draft','approved','scheduled');
-create index if not exists idx_briefs_slot_start on public.content_briefs (slot_start desc);
-create index if not exists idx_posts_status on public.posts (status) where status in ('pending','published');
-create index if not exists idx_posts_idempotency on public.posts (idempotency_key);
-create index if not exists idx_snap_captured_at on public.engagement_snapshots (captured_at desc);
-create index if not exists idx_snap_captured_at_post on public.engagement_snapshots (post_id, captured_at desc);
-create index if not exists idx_jobs_idempotency on public.jobs (idempotency_key) where idempotency_key is not null;
-create index if not exists idx_usage_called_at on public.ai_usage (called_at desc);
-
-update public.app_settings set schema_version = 4, updated_at = now() where id = 1;
-insert into public._migrations (id, name) values (4, 'performance_indexes') on conflict (id) do nothing;
-`,
-  },
-  {
     id: 3,
     name: "auth_user_isolation",
     sql: `
@@ -387,6 +369,24 @@ set schema_version = 3,
 where id = 1;
 
 insert into public._migrations (id, name) values (3, 'auth_user_isolation') on conflict (id) do nothing;
+`,
+  },
+  {
+    id: 4,
+    name: "performance_indexes",
+    sql: `
+-- Performance indexes for common query patterns
+create index if not exists idx_briefs_status on public.content_briefs (status) where status in ('draft','approved','scheduled');
+create index if not exists idx_briefs_slot_start on public.content_briefs (slot_start desc);
+create index if not exists idx_posts_status on public.posts (status) where status in ('pending','published');
+create index if not exists idx_posts_idempotency on public.posts (idempotency_key);
+create index if not exists idx_snap_captured_at on public.engagement_snapshots (captured_at desc);
+create index if not exists idx_snap_captured_at_post on public.engagement_snapshots (post_id, captured_at desc);
+create index if not exists idx_jobs_idempotency on public.jobs (idempotency_key) where idempotency_key is not null;
+create index if not exists idx_usage_called_at on public.ai_usage (called_at desc);
+
+update public.app_settings set schema_version = 4, updated_at = now() where id = 1;
+insert into public._migrations (id, name) values (4, 'performance_indexes') on conflict (id) do nothing;
 `,
   },
   {
@@ -496,53 +496,6 @@ insert into public._migrations (id, name) values (6, 'brand_memory') on conflict
 `,
   },
   {
-    id: 8,
-    name: "strategy_transaction_rpc",
-    sql: `
--- Atomic replace for strategy recommendations
--- Inserts new recommendations and dismisses old ones in a single transaction
-create or replace function public.replace_strategy_recommendations(
-  _page_id uuid,
-  _recommendations jsonb
-)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  -- Dismiss all currently active recommendations for this page
-  update public.strategy_recommendations
-  set status = 'dismissed'
-  where page_id = _page_id and status = 'active';
-
-  -- Insert new recommendations
-  insert into public.strategy_recommendations (
-    page_id, recommendation_type, recommendation_text, reasoning, priority, related_content
-  )
-  select
-    _page_id,
-    (item->>'recommendation_type'),
-    (item->>'recommendation_text'),
-    coalesce(item->>'reasoning', ''),
-    coalesce((item->>'priority')::int, 0),
-    coalesce(item->'related_content', '[]'::jsonb)
-  from jsonb_array_elements(_recommendations) as item;
-end;
-$$;
-
-grant execute on function public.replace_strategy_recommendations(uuid, jsonb) to anon, authenticated, service_role;
-
-update public.app_settings
-set schema_version = 8,
-    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('strategy_transaction_rpc', 'v1'),
-    updated_at = now()
-where id = 1;
-
-insert into public._migrations (id, name) values (8, 'strategy_transaction_rpc') on conflict (id) do nothing;
-`,
-  },
-  {
     id: 7,
     name: "strategy_recommendations",
     sql: `
@@ -598,6 +551,53 @@ set schema_version = 7,
 where id = 1;
 
 insert into public._migrations (id, name) values (7, 'strategy_recommendations') on conflict (id) do nothing;
+`,
+  },
+  {
+    id: 8,
+    name: "strategy_transaction_rpc",
+    sql: `
+-- Atomic replace for strategy recommendations
+-- Inserts new recommendations and dismisses old ones in a single transaction
+create or replace function public.replace_strategy_recommendations(
+  _page_id uuid,
+  _recommendations jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Dismiss all currently active recommendations for this page
+  update public.strategy_recommendations
+  set status = 'dismissed'
+  where page_id = _page_id and status = 'active';
+
+  -- Insert new recommendations
+  insert into public.strategy_recommendations (
+    page_id, recommendation_type, recommendation_text, reasoning, priority, related_content
+  )
+  select
+    _page_id,
+    (item->>'recommendation_type'),
+    (item->>'recommendation_text'),
+    coalesce(item->>'reasoning', ''),
+    coalesce((item->>'priority')::int, 0),
+    coalesce(item->'related_content', '[]'::jsonb)
+  from jsonb_array_elements(_recommendations) as item;
+end;
+$$;
+
+grant execute on function public.replace_strategy_recommendations(uuid, jsonb) to anon, authenticated, service_role;
+
+update public.app_settings
+set schema_version = 8,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('strategy_transaction_rpc', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (8, 'strategy_transaction_rpc') on conflict (id) do nothing;
 `,
   },
 ];
