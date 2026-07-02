@@ -12,14 +12,28 @@ const supabase = createClient(supabaseUrl, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+async function validatePat(pat: string): Promise<boolean> {
+  try {
+    const r = await fetch("https://api.supabase.com/v1/projects?limit=1", {
+      headers: { Authorization: `Bearer ${pat}` },
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return json({ error: "Use POST" }, 405);
 
   const auth = request.headers.get("authorization") ?? "";
   const pat = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!pat || pat.length < 20) {
-    return json({ error: "Valid Supabase PAT required in Authorization header" }, 401);
+  if (!pat) {
+    return json({ error: "Supabase PAT required in Authorization header" }, 401);
+  }
+  if (!await validatePat(pat)) {
+    return json({ error: "Invalid or expired Supabase PAT. Verify your Personal Access Token in Supabase Dashboard → Settings → API." }, 401);
   }
 
   let body;
