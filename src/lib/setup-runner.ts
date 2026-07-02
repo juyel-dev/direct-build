@@ -177,9 +177,22 @@ export async function runSetup(
         ref,
         buildCronSql(functionUrl, secrets.supabaseAnonKey, automationSecret),
       );
+      const verifyResult = await runSql(
+        secrets.supabasePAT,
+        ref,
+        `SELECT jobname, schedule FROM cron.job WHERE jobname = 'aurora-worker-every-minute'`,
+      );
+      const rows = Array.isArray(verifyResult) ? verifyResult : [];
+      if (rows.length === 0) {
+        throw new Error(
+          "pg_cron/pg_net extensions not available — cron job was not created. " +
+          "Verify your Supabase project supports pg_cron and pg_net extensions, " +
+          "then re-run setup.",
+        );
+      }
       status.edgeFunctionsReady = true;
       saveInstallStatus(status);
-      return "Scheduled worker every minute via pg_cron.";
+      return `Scheduled worker every minute via pg_cron. Verified: job 'aurora-worker-every-minute' active.`;
     });
 
     status.completedAt = new Date().toISOString();
