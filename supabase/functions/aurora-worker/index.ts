@@ -86,6 +86,7 @@ const AI_API_KEY = Deno.env.get("FBAI_AI_API_KEY");
 const LLM_PROVIDER = Deno.env.get("FBAI_LLM_PROVIDER") ?? "openrouter";
 const LLM_MODEL = Deno.env.get("FBAI_LLM_MODEL") ?? "meta-llama/llama-3.3-70b-instruct:free";
 const LLM_BASE_URL = Deno.env.get("FBAI_LLM_BASE_URL") || "";
+const FALLBACK_LLM_MODEL = Deno.env.get("FBAI_FALLBACK_LLM_MODEL");
 const IMAGE_PROVIDER = Deno.env.get("FBAI_IMAGE_PROVIDER") ?? "pollinations";
 const IMAGE_MODEL = Deno.env.get("FBAI_IMAGE_MODEL") ?? "flux";
 const IMAGE_API_KEY = Deno.env.get("FBAI_IMAGE_API_KEY");
@@ -213,6 +214,7 @@ async function seedRecurringJobs(pages: Page[]) {
     await enqueue(page.id, "capture_engagement", floorBucket(now, 60), { window_days: 30 }, 0);
     await enqueue(page.id, "compute_strategy", floorBucket(now, 6 * 60), { window_days: 30 }, 0);
     await enqueue(page.id, "extract_brand_memory", floorBucket(now, 24 * 60), {}, 0);
+    await enqueue(page.id, "generate_strategy", floorBucket(now, 6 * 60), {}, 0);
   }
 }
 
@@ -789,8 +791,199 @@ async function extractBrandMemory(page: Page) {
   return `Extracted brand memory from ${posts.length} posts.`;
 }
 
+type PostWithEngagement = {
+  published_at: string | null;
+  engagement_snapshots: Array<{ likes?: number; comments?: number; shares?: number; captured_at?: string }> | null;
+  content_briefs: { topic?: string | null; caption?: string | null } | null;
+};
+
+type StrategyRec = {
+  recommendation_type: string;
+  recommendation_text: string;
+  reasoning: string;
+  priority: number;
+  related_content: Array<{ type: string; text: string }>;
+};
+
+function normalizeStrategyRecs(raw: unknown[]): StrategyRec[] {
+  return raw.filter((r): r is StrategyRec =>
+    r != null &&
+    typeof (r as Record<string, unknown>).recommendation_type === "string" &&
+    typeof (r as Record<string, unknown>).recommendation_text === "string"
+  ).map((r) => ({
+    recommendation_type: (r as Record<string, unknown>).recommendation_type as string,
+    recommendation_text: (r as Record<string, unknown>).recommendation_text as string,
+    reasoning: typeof (r as Record<string, unknown>).reasoning === "string" ? (r as Record<string, unknown>).reasoning as string : "",
+    priority: typeof (r as Record<string, unknown>).priority === "number" ? (r as Record<string, unknown>).priority as number : 0,
+    related_content: Array.isArray((r as Record<string, unknown>).related_content) ? (r as Record<string, unknown>).related_content as Array<{ type: string; text: string }> : [],
+  }));
+}
+
+async function loadPostHistoryWithEngagement(pageId: string, windowDays: number): Promise<PostWithEngagement[]> {
+  const since = new Date(Date.now() - windowDays * 86400_000).toISOString();
+  const { data, error } = await supabase
+    .from("posts")
+    .select("published_at, engagement_snapshots(likes, comments, shares, captured_at), content_briefs(topic, caption)")
+    .eq("page_id", pageId)
+    .eq("status", "published")
+    .gte("published_at", since)
+    .order("published_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as PostWithEngagement[];
+}
+
+function buildStrategyPrompt(
+  memory: BrandMemoryRow | null,
+  insights: Record<string, unknown>,
+  posts: PostWithEngagement[],
+): string {
+  const scoredPosts = posts
+    .map((p) => {
+      const snaps = p.engagement_snapshots ?? [];
+      const latest = snaps[snaps.length - 1] ?? {};
+      return {
+        topic: p.content_briefs?.topic ?? "",
+        caption: (p.content_briefs?.caption ?? "").slice(0, 200),
+        likes: Number(latest.likes ?? 0),
+        comments: Number(latest.comments ?? 0),
+        shares: Number(latest.shares ?? 0),
+        score: Number(latest.likes ?? 0) + Number(latest.comments ?? 0) * 2 + Number(latest.shares ?? 0) * 3,
+        published_at: p.published_at,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const topPosts = scoredPosts.slice(0, 10);
+  const bottomPosts = scoredPosts.filter((p) => p.score > 0).slice(-5);
+  const totalEngagement = scoredPosts.reduce((a, p) => a + p.score, 0);
+  const avgScore = scoredPosts.length ? Math.round(totalEngagement / scoredPosts.length) : 0;
+
+  const brandContext = memory
+    ? [
+        memory.brand_descriptors?.length ? `Brand identity: ${memory.brand_descriptors.join(", ")}.` : "",
+        memory.writing_style_notes ? `Style: ${memory.writing_style_notes}.` : "",
+        memory.tone_guidelines ? `Tone: ${memory.tone_guidelines}.` : "",
+        memory.effective_hashtags?.length ? `Top hashtags: ${memory.effective_hashtags.join(", ")}.` : "",
+        memory.avoided_topics?.length ? `Avoid: ${memory.avoided_topics.join(", ")}.` : "",
+      ].filter(Boolean).join(" ")
+    : "No brand memory yet.";
+
+  return JSON.stringify({
+    task: "Analyze this Facebook page's content performance and generate 3-5 strategic recommendations.",
+    brand: brandContext,
+    strategy_insights: {
+      best_posting_hour: insights.best_posting_hour ?? null,
+      best_topics: insights.best_topics ?? [],
+      avg_engagement_rate: insights.avg_engagement_rate ?? null,
+      average_post_score: avgScore,
+    },
+    top_performing_posts: topPosts.map((p) => ({
+      topic: p.topic, caption: p.caption, likes: p.likes, comments: p.comments, shares: p.shares, score: p.score,
+    })),
+    underperforming_posts: bottomPosts.map((p) => ({
+      topic: p.topic, caption: p.caption, score: p.score,
+    })),
+    requirements: [
+      "Return ONLY valid JSON. No markdown, no code fences.",
+      'Format: {"recommendations":[{"recommendation_type":"topic|hook|timing|brand_voice|content_angle","recommendation_text":"clear actionable suggestion","reasoning":"why this helps the page grow","priority":1-10,"related_content":[{"type":"example","text":"supporting detail"}]}]}',
+      "recommendation_type must be one of: topic, hook, timing, brand_voice, content_angle",
+      "Priority 10 = most important. Priority 1 = nice to have.",
+      "Base suggestions on actual data from top and underperforming posts.",
+      "If brand memory exists, ensure suggestions align with brand identity, tone, and style.",
+      "If brand memory is empty, suggest setting up brand descriptors.",
+    ],
+  });
+}
+
+async function callLlmForStrategy(
+  prompt: string,
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  pageId: string,
+): Promise<StrategyRec[]> {
+  const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const response = await fetchWithTimeout(url, {
+    method: "POST",
+    timeout: 45_000,
+    headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: "You are a Facebook content strategy analyst. Return ONLY valid JSON. No markdown, no code fences." },
+        { role: "user", content: prompt },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7,
+    }),
+  });
+  const body = await response.text();
+  await logUsage(pageId, null, LLM_PROVIDER, model);
+  if (!response.ok) {
+    await recordProviderFailure("llm", `Strategy LLM ${response.status}: ${body.slice(0, 240)}`);
+    throw new Error(`Strategy LLM call failed (${response.status}): ${body.slice(0, 240)}`);
+  }
+  let parsed: { data?: { choices?: { message?: { content?: string } }[] } };
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new Error("Strategy LLM returned non-JSON response");
+  }
+  const content = parsed?.choices?.[0]?.message?.content ?? "{}";
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(content);
+  } catch {
+    throw new Error("Strategy LLM returned invalid JSON in message content");
+  }
+  if (!Array.isArray(data.recommendations)) {
+    throw new Error("Strategy LLM response missing recommendations array");
+  }
+  const valid = normalizeStrategyRecs(data.recommendations);
+  if (valid.length === 0) {
+    throw new Error("Strategy LLM returned zero valid recommendations");
+  }
+  return valid;
+}
+
 async function generateStrategy(page: Page) {
-  return `Strategy generation skeleton ready. Invoke via frontend StrategyService.analyzePage().`;
+  if (!AI_API_KEY) return "Skipped — no AI API key configured.";
+  if (!await isProviderAvailable("llm")) return "Skipped — LLM provider in cooldown.";
+
+  const [memory, insights, posts] = await Promise.all([
+    loadBrandMemory(page.id),
+    loadInsights(page.id),
+    loadPostHistoryWithEngagement(page.id, 90),
+  ]);
+
+  const prompt = buildStrategyPrompt(memory, insights, posts);
+  const baseUrl = LLM_BASE_URL || defaultLlmBaseUrl(LLM_PROVIDER);
+  if (!baseUrl) return "Skipped — no LLM base URL configured.";
+
+  let recommendations: StrategyRec[];
+  try {
+    recommendations = await callLlmForStrategy(prompt, baseUrl, AI_API_KEY, LLM_MODEL, page.id);
+  } catch (error) {
+    log("warn", "Strategy LLM primary model failed, checking fallback", {
+      model: LLM_MODEL, error: messageOf(error),
+    });
+    if (!FALLBACK_LLM_MODEL) throw error;
+    recommendations = await callLlmForStrategy(prompt, baseUrl, AI_API_KEY, FALLBACK_LLM_MODEL, page.id);
+  }
+
+  const { error: rpcError } = await supabase.rpc("replace_strategy_recommendations", {
+    _page_id: page.id,
+    _recommendations: JSON.stringify(recommendations.map((r) => ({
+      recommendation_type: r.recommendation_type,
+      recommendation_text: r.recommendation_text,
+      reasoning: r.reasoning,
+      priority: r.priority,
+      related_content: r.related_content ?? [],
+    }))),
+  });
+  if (rpcError) throw rpcError;
+
+  return `Generated ${recommendations.length} strategy recommendations.`;
 }
 
 async function completeJob(job: Job, status: string, detail: string) {
