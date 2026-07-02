@@ -252,7 +252,7 @@ async function processJob(job: Job, pages: Page[]) {
     const detail = messageOf(error);
     const isTokenExpired = detail.startsWith("TOKEN_EXPIRED:");
     const terminal = isTokenExpired || job.attempts >= job.max_attempts;
-    await completeJob(job, terminal ? "failed_terminal" : "failed_retryable", detail);
+    await completeJob(job, terminal ? "dead_letter" : "failed_retryable", detail);
     log("warn", terminal ? "Job failed terminal" : "Job failed retryable", {
       job_id: job.id, kind: job.kind, attempts: job.attempts, error: detail, token_expired: isTokenExpired,
     });
@@ -759,6 +759,7 @@ async function completeJob(job: Job, status: string, detail: string) {
       ? new Date(Date.now() + Math.min(60, 2 ** Math.max(0, job.attempts)) * 60_000).toISOString()
       : null;
   const now = new Date().toISOString();
+  const isTerminal = status === "succeeded" || status === "dead_letter";
   const { error } = await supabase
     .from("jobs")
     .update({
@@ -766,11 +767,16 @@ async function completeJob(job: Job, status: string, detail: string) {
       last_error: status === "succeeded" ? null : detail,
       next_retry_at: retryAt,
       lease_expires_at: null,
-      completed_at: status === "succeeded" || status === "failed_terminal" ? now : null,
+      completed_at: isTerminal ? now : null,
       updated_at: now,
     })
     .eq("id", job.id);
   if (error) throw error;
+  if (status === "dead_letter") {
+    await event("error", "dead_letter", `${job.kind} moved to dead letter queue: ${detail}`, {
+      job_id: job.id, kind: job.kind, attempts: job.attempts,
+    });
+  }
   await event(status === "succeeded" ? "info" : "error", "job", `${job.kind}: ${detail}`, {
     job_id: job.id,
   });
