@@ -25,6 +25,10 @@ export type DashboardStats = {
   totalShares: number;
   workerLastRun: string | null;
   workerTodayRuns: number;
+  health: "healthy" | "warning" | "critical";
+  workerErrors24h: number;
+  queueDepth: number;
+  circuitOpen: boolean;
 };
 
 // ─── Dashboard ───────────────────────────────────────────

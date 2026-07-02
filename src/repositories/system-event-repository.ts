@@ -44,6 +44,28 @@ export class SystemEventRepository extends BaseRepository {
     };
   }
 
+  async countWorkerErrorsSince(since: Date): Promise<number> {
+    const { count, error } = await this.client
+      .from("system_events")
+      .select("id", { count: "exact", head: true })
+      .eq("severity", "error")
+      .eq("category", "worker")
+      .gte("created_at", since.toISOString());
+    if (error) this.handleError(error, "events.countWorkerErrorsSince");
+    return count ?? 0;
+  }
+
+  async isCircuitOpen(): Promise<boolean> {
+    const cooldown = new Date(Date.now() - 300_000); // 5 min cooldown
+    const { count, error } = await this.client
+      .from("system_events")
+      .select("id", { count: "exact", head: true })
+      .like("category", "circuit_%")
+      .gte("created_at", cooldown.toISOString());
+    if (error) this.handleError(error, "events.isCircuitOpen");
+    return (count ?? 0) >= 3;
+  }
+
   async findAlerts(since: Date): Promise<SystemEvent[]> {
     const { data, error } = await this.client
       .from("system_events")

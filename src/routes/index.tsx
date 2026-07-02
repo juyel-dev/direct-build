@@ -212,13 +212,18 @@ function Dashboard() {
       )}
 
       <GlassCard className="p-4 mb-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-success/15">
-              <CpuChipIcon className="h-5 w-5 text-success" />
+            <div className="grid h-9 w-9 place-items-center rounded-lg" style={{
+              backgroundColor: healthColor(stats?.health ?? "healthy", "bg"),
+            }}>
+              <CpuChipIcon className="h-5 w-5" style={{ color: healthColor(stats?.health ?? "healthy", "text") }} />
             </div>
             <div>
-              <p className="text-sm font-medium">Worker Status</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium">Worker Health</p>
+                <HealthPill status={stats?.health ?? "healthy"} />
+              </div>
               <p className="text-xs text-muted-foreground">
                 {stats?.workerLastRun
                   ? `Last run: ${formatTimeAgo(stats.workerLastRun)}`
@@ -226,19 +231,24 @@ function Dashboard() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-            <span>Today: {stats?.workerTodayRuns ?? 0} runs</span>
-            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              brand.postingMode === "full_auto"
-                ? "bg-success/15 text-success border border-success/30"
-                : brand.postingMode === "hybrid"
-                ? "bg-accent/15 text-accent border border-accent/30"
-                : "bg-white/10 text-muted-foreground border border-white/10"
-            }`}>
-              <FireIcon className="h-3 w-3" />
-              {brand.postingMode === "full_auto" ? "Auto" : brand.postingMode === "hybrid" ? "Hybrid" : "Manual"}
-            </span>
-          </div>
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+            brand.postingMode === "full_auto"
+              ? "bg-success/15 text-success border border-success/30"
+              : brand.postingMode === "hybrid"
+              ? "bg-accent/15 text-accent border border-accent/30"
+              : "bg-white/10 text-muted-foreground border border-white/10"
+          }`}>
+            <FireIcon className="h-3 w-3" />
+            {brand.postingMode === "full_auto" ? "Auto" : brand.postingMode === "hybrid" ? "Hybrid" : "Manual"}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+          <span>Today: <strong className="text-foreground">{stats?.workerTodayRuns ?? 0}</strong> runs</span>
+          <span>Errors (24h): <strong className={stats && stats.workerErrors24h > 0 ? "text-destructive" : "text-foreground"}>{stats?.workerErrors24h ?? 0}</strong></span>
+          <span>Queue: <strong className="text-foreground">{stats?.queueDepth ?? 0}</strong> jobs</span>
+          <span>Circuit: <strong className={stats?.circuitOpen ? "text-destructive" : "text-success"}>
+            {stats?.circuitOpen ? "Open" : "Closed"}
+          </strong></span>
         </div>
       </GlassCard>
 
@@ -393,6 +403,31 @@ function RowMetric({ icon, label, value }: { icon: React.ReactNode; label: strin
       </div>
       <span className="text-sm font-medium tabular-nums">{value}</span>
     </div>
+  );
+}
+
+function healthColor(health: string, variant: "bg" | "text"): string {
+  if (health === "critical") return variant === "bg" ? "oklch(0.60_0.22_25 / 0.15)" : "oklch(0.65_0.22_25)";
+  if (health === "warning") return variant === "bg" ? "oklch(0.70_0.18_85 / 0.15)" : "oklch(0.75_0.18_85)";
+  return variant === "bg" ? "oklch(0.65_0.18_145 / 0.15)" : "oklch(0.70_0.18_145)";
+}
+
+function HealthPill({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    healthy: "bg-success/15 text-success border-success/30",
+    warning: "bg-warning/10 text-warning border-warning/30",
+    critical: "bg-destructive/15 text-destructive border-destructive/30",
+  };
+  const label: Record<string, string> = {
+    healthy: "Healthy",
+    warning: "Warning",
+    critical: "Critical",
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${colors[status] ?? colors.healthy}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${status === "critical" ? "bg-destructive animate-pulse" : status === "warning" ? "bg-warning" : "bg-success"}`} />
+      {label[status] ?? "Healthy"}
+    </span>
   );
 }
 
