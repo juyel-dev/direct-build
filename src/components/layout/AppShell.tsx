@@ -19,7 +19,7 @@ import { GlassButton } from "@/components/glass/GlassButton";
 import { cn } from "@/lib/utils";
 import { clearSessionPassphrase, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
 import { invalidateUserSupabase } from "@/lib/user-supabase";
-import { useDraftCount } from "@/hooks/useAuroraQuery";
+import { useDraftCount, useAlertCount } from "@/hooks/useAuroraQuery";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: HomeIcon },
@@ -59,6 +59,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const draftCountQuery = useDraftCount();
   const draftCount = draftCountQuery.data ?? 0;
+  const alertCountQuery = useAlertCount();
+  const alertCount = alertCountQuery.data?.total ?? 0;
 
   useEffect(() => {
     setUnlocked(!!getSessionPassphrase());
@@ -144,6 +146,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 const Icon = item.icon;
                 const active = pathname === item.to || (item.to !== "/" && pathname.startsWith(item.to));
                 const showBadge = item.to === "/drafts" && draftCount > 0;
+                const showAlertDot = item.to === "/" && alertCount > 0;
                 return (
                   <Link
                     key={item.to}
@@ -161,6 +164,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <span className="ml-auto inline-flex items-center justify-center rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                         {draftCount}
                       </span>
+                    )}
+                    {showAlertDot && !showBadge && (
+                      <span className="ml-auto h-2 w-2 rounded-full bg-destructive animate-pulse" title={`${alertCount} alert(s)`} />
                     )}
                   </Link>
                 );

@@ -25,6 +25,7 @@ import {
   LightBulbIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
+import { toast } from "sonner";
 import { format } from "date-fns";
 
 export const Route = createFileRoute("/")({
@@ -51,6 +52,29 @@ function Dashboard() {
   const briefs = data?.briefs ?? [];
   const stats = data?.stats ?? null;
   const alerts = data?.alerts ?? [];
+
+  useEffect(() => {
+    if (alerts.length === 0) return;
+    const notified = new Set<string>(
+      JSON.parse(sessionStorage.getItem("aurora-notified-alerts") ?? "[]"),
+    );
+    for (const a of alerts) {
+      if (notified.has(a.id)) continue;
+      notified.add(a.id);
+      if (a.category === "facebook_token_expired") {
+        toast.error("Facebook token expired", {
+          description: a.message,
+          duration: 10_000,
+        });
+      } else if (a.category === "dead_letter") {
+        toast.error("Job failed permanently", {
+          description: a.message,
+          duration: 8_000,
+        });
+      }
+    }
+    sessionStorage.setItem("aurora-notified-alerts", JSON.stringify([...notified]));
+  }, [alerts]);
 
   const [recommendations, setRecommendations] = useState<StrategyRecommendation[]>([]);
   const [analyzing, setAnalyzing] = useState(false);

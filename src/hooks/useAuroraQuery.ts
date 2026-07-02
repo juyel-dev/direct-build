@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createUserClient, isClientReady } from "../services/supabase-factory";
 import { DashboardService } from "../services/dashboard-service";
+import { SystemEventRepository } from "../repositories/system-event-repository";
+import type { AlertCount } from "../repositories/system-event-repository";
 import { AnalyticsService } from "../services/analytics/analytics.service";
 import { DraftService } from "../services/draft/draft.service";
 import { ScheduleService } from "../services/schedule/schedule.service";
@@ -34,6 +36,23 @@ export function useDashboardData() {
       if (!sb) throw new Error("Could not initialize Supabase client.");
       const svc = new DashboardService(sb);
       return svc.getDashboardData();
+    },
+    enabled: isClientReady(),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
+// ─── Alerts (lightweight count for nav badge) ────────────
+export function useAlertCount() {
+  return useQuery({
+    queryKey: ["alertCount"],
+    queryFn: async () => {
+      const sb = await createUserClient();
+      if (!sb) return { total: 0, hasTokenExpiry: false, hasDeadLetter: false } satisfies AlertCount;
+      const repo = new SystemEventRepository(sb);
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      return repo.countAlerts(since);
     },
     enabled: isClientReady(),
     staleTime: 30_000,
