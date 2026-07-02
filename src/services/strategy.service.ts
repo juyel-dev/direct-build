@@ -214,8 +214,7 @@ export class StrategyService extends BaseService {
       related_content: rec.related_content ?? [],
     }));
     try {
-      await this.repo.insertBatch(batch);
-      await this.repo.dismissAll(pageId);
+      await this.repo.replaceAll(pageId, batch);
     } catch (e) {
       this.log("error", "Failed to persist strategy recommendations", {
         error: e instanceof Error ? e.message : String(e),

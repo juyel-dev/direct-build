@@ -1,41 +1,50 @@
 import { describe, it, expect } from "vitest";
 
 describe("Strategy transaction safety", () => {
-  it("insertBatch is called before dismissAll", () => {
-    const order: string[] = [];
+  it("replaceAll is used instead of separate insertBatch+dismissAll", () => {
+    const calls: string[] = [];
     const fakeRepo = {
-      dismissAll: async () => { order.push("dismissAll"); },
-      insertBatch: async () => { order.push("insertBatch"); },
+      replaceAll: async (_pageId: string, _recs: unknown[]) => { calls.push("replaceAll"); },
+      insertBatch: async () => { calls.push("insertBatch"); },
+      dismissAll: async () => { calls.push("dismissAll"); },
       findByPage: async () => [],
     };
 
     async function simulateAnalyze() {
-      order.push("insertBatch");
-      await Promise.resolve();
-      order.push("dismissAll");
+      await fakeRepo.replaceAll("page-1", []);
       return fakeRepo.findByPage();
     }
 
     return simulateAnalyze().then(() => {
-      expect(order.indexOf("insertBatch")).toBeLessThan(order.indexOf("dismissAll"));
+      expect(calls).toEqual(["replaceAll"]);
     });
   });
 
-  it("dismissAll is not called if insertBatch throws", async () => {
+  it("replaceAll is the single atomic call (no separate dismissAll)", () => {
+    let replaceCalled = false;
     let dismissCalled = false;
-    const failingRepo = {
-      insertBatch: async () => { throw new Error("DB write failed"); },
+    const trackingRepo = {
+      replaceAll: async (_pageId: string, _recs: unknown[]) => { replaceCalled = true; },
       dismissAll: async () => { dismissCalled = true; },
       findByPage: async () => [],
     };
 
     async function simulateAnalyze() {
-      await failingRepo.insertBatch();
-      await failingRepo.dismissAll();
-      return failingRepo.findByPage();
+      await trackingRepo.replaceAll("page-1", []);
+      return trackingRepo.findByPage();
     }
 
-    await expect(simulateAnalyze()).rejects.toThrow("DB write failed");
-    expect(dismissCalled).toBe(false);
+    return simulateAnalyze().then(() => {
+      expect(replaceCalled).toBe(true);
+      expect(dismissCalled).toBe(false);
+    });
+  });
+
+  it("existing recommendations are preserved if replaceAll throws", async () => {
+    const failingRepo = {
+      replaceAll: async (_pageId: string, _recs: unknown[]) => { throw new Error("DB write failed"); },
+      findByPage: async () => [{ id: "old-1" }],
+    };
+    await expect(failingRepo.replaceAll("page-1", [])).rejects.toThrow("DB write failed");
   });
 });

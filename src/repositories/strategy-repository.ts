@@ -95,4 +95,28 @@ export class StrategyRepository extends BaseRepository {
       .eq("status", "active");
     if (error) this.handleError(error, "strategy.dismissAll");
   }
+
+  async replaceAll(
+    pageId: string,
+    recs: Array<{
+      recommendation_type: string;
+      recommendation_text: string;
+      reasoning: string;
+      priority: number;
+      related_content?: unknown[];
+    }>,
+  ): Promise<void> {
+    if (recs.length === 0) return;
+    const { error } = await this.client.rpc("replace_strategy_recommendations", {
+      _page_id: pageId,
+      _recommendations: JSON.stringify(recs.map((r) => ({
+        recommendation_type: r.recommendation_type,
+        recommendation_text: r.recommendation_text,
+        reasoning: r.reasoning,
+        priority: r.priority,
+        related_content: r.related_content ?? [],
+      }))),
+    });
+    if (error) this.handleError(error, "strategy.replaceAll");
+  }
 }

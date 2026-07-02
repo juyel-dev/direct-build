@@ -496,6 +496,53 @@ insert into public._migrations (id, name) values (6, 'brand_memory') on conflict
 `,
   },
   {
+    id: 8,
+    name: "strategy_transaction_rpc",
+    sql: `
+-- Atomic replace for strategy recommendations
+-- Inserts new recommendations and dismisses old ones in a single transaction
+create or replace function public.replace_strategy_recommendations(
+  _page_id uuid,
+  _recommendations jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Dismiss all currently active recommendations for this page
+  update public.strategy_recommendations
+  set status = 'dismissed'
+  where page_id = _page_id and status = 'active';
+
+  -- Insert new recommendations
+  insert into public.strategy_recommendations (
+    page_id, recommendation_type, recommendation_text, reasoning, priority, related_content
+  )
+  select
+    _page_id,
+    (item->>'recommendation_type'),
+    (item->>'recommendation_text'),
+    coalesce(item->>'reasoning', ''),
+    coalesce((item->>'priority')::int, 0),
+    coalesce(item->'related_content', '[]'::jsonb)
+  from jsonb_array_elements(_recommendations) as item;
+end;
+$$;
+
+grant execute on function public.replace_strategy_recommendations(uuid, jsonb) to anon, authenticated, service_role;
+
+update public.app_settings
+set schema_version = 8,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('strategy_transaction_rpc', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (8, 'strategy_transaction_rpc') on conflict (id) do nothing;
+`,
+  },
+  {
     id: 7,
     name: "strategy_recommendations",
     sql: `
