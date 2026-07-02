@@ -2,25 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import process from "node:process";
 import { createLogger } from "../../logger";
+import { getCorsHeaders } from "../../lib/cors";
 
 const log = createLogger("api/health");
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-} as const;
-
-const SECURITY_HEADERS = {
-  "x-content-type-options": "nosniff",
-  "x-frame-options": "DENY",
-  "x-xss-protection": "1; mode=block",
-} as const;
-
-function json(data: unknown, status: number): Response {
+function json(data: unknown, status: number, request?: Request): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json", ...CORS, ...SECURITY_HEADERS },
+    headers: { "Content-Type": "application/json", ...getCorsHeaders(request) },
   });
 }
 
@@ -29,7 +18,7 @@ const START_TIME = Date.now();
 export const Route = createFileRoute("/api/health")({
   server: {
     handlers: {
-      OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
+      OPTIONS: async ({ request }) => new Response(null, { status: 204, headers: getCorsHeaders(request) }),
 
       GET: async ({ request }) => {
         const result: Record<string, unknown> = {
@@ -47,7 +36,7 @@ export const Route = createFileRoute("/api/health")({
 
         if (!url || !anonKey) {
           result.db = { status: "unavailable", detail: "Supabase credentials not configured in env or headers" };
-          return json(result, 200);
+          return json(result, 200, request);
         }
 
         const sb = createClient(url, anonKey, {
@@ -135,7 +124,7 @@ export const Route = createFileRoute("/api/health")({
         result.status = allOk ? "ok" : "degraded";
 
         log.info("Health check", { status: result.status });
-        return json(result, 200);
+        return json(result, 200, request);
       },
     },
   },

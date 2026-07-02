@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { createLogger } from "../../logger";
+import { getCorsHeaders } from "../../lib/cors";
 
 const log = createLogger("api/proxy");
 
@@ -95,26 +96,12 @@ function isPrivateHost(hostname: string): boolean {
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024; // 10 MB
 const UPSTREAM_TIMEOUT_MS = 30_000; // 30s timeout for upstream fetch
 
-/* ─── CORS headers ──────────────────────────────────────────── */
-
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-} as const;
-
-const SECURITY_HEADERS = {
-  "x-content-type-options": "nosniff",
-  "x-frame-options": "DENY",
-  "x-xss-protection": "1; mode=block",
-} as const;
-
 /* ─── Route ─────────────────────────────────────────────────── */
 
 export const Route = createFileRoute("/api/proxy")({
   server: {
     handlers: {
-      OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
+      OPTIONS: async ({ request }) => new Response(null, { status: 204, headers: getCorsHeaders(request) }),
 
       POST: async ({ request }) => {
         const ip = getClientIp(request);
@@ -123,7 +110,7 @@ export const Route = createFileRoute("/api/proxy")({
         const { allowed } = checkRateLimit(ip);
         if (!allowed) {
           log.warn("Rate limit exceeded", { ip });
-          return json({ error: "Too many requests. Try again later." }, 429);
+          return json({ error: "Too many requests. Try again later." }, 429, request);
         }
 
         /* Parse & validate */
@@ -133,34 +120,34 @@ export const Route = createFileRoute("/api/proxy")({
           const parsed = ProxyRequestSchema.safeParse(raw);
           if (!parsed.success) {
             log.warn("Validation failed", { errors: parsed.error.issues.map(i => i.message) });
-            return json({ error: "Invalid request", details: parsed.error.issues }, 400);
+            return json({ error: "Invalid request", details: parsed.error.issues }, 400, request);
           }
           payload = parsed.data;
         } catch {
-          return json({ error: "Invalid JSON body" }, 400);
+          return json({ error: "Invalid JSON body" }, 400, request);
         }
 
         /* Validate URL */
         let target: URL;
         try { target = new URL(payload.url); } catch {
-          return json({ error: "Invalid url" }, 400);
+          return json({ error: "Invalid url" }, 400, request);
         }
 
         /* Enforce HTTPS */
         if (target.protocol === "http:" && !target.hostname.endsWith(".supabase.co")) {
-          return json({ error: "HTTPS required" }, 400);
+          return json({ error: "HTTPS required" }, 400, request);
         }
 
         /* Allowlist */
         if (!isHostAllowed(target.hostname)) {
           log.warn("Blocked host", { hostname: target.hostname, ip });
-          return json({ error: `Host not allowed: ${target.hostname}` }, 403);
+          return json({ error: `Host not allowed: ${target.hostname}` }, 403, request);
         }
 
         /* SSRF protection */
         if (isPrivateHost(target.hostname)) {
           log.warn("SSRF blocked", { hostname: target.hostname, ip });
-          return json({ error: "Internal hosts not allowed" }, 403);
+          return json({ error: "Internal hosts not allowed" }, 403, request);
         }
 
         /* Forward request */
@@ -188,7 +175,7 @@ export const Route = createFileRoute("/api/proxy")({
               status: 0,
               body: "",
               headers: {},
-            }, 200);
+            }, 200, request);
           }
 
           log.info("Proxied request", {
@@ -201,7 +188,7 @@ export const Route = createFileRoute("/api/proxy")({
 
           const headers: Record<string, string> = {};
           upstream.headers.forEach((v, k) => { headers[k] = v; });
-          return json({ status: upstream.status, headers, body: text }, 200);
+          return json({ status: upstream.status, headers, body: text }, 200, request);
         } catch (e) {
           log.error("Upstream fetch failed", {
             hostname: target.hostname,
@@ -213,16 +200,16 @@ export const Route = createFileRoute("/api/proxy")({
             status: 0,
             body: "",
             headers: {},
-          }, 200);
+          }, 200, request);
         }
       },
     },
   },
 });
 
-function json(data: unknown, status: number): Response {
+function json(data: unknown, status: number, request?: Request): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json", ...CORS, ...SECURITY_HEADERS },
+    headers: { "Content-Type": "application/json", ...getCorsHeaders(request) },
   });
 }
