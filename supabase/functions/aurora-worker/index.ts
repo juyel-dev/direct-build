@@ -80,6 +80,17 @@ const supabase = createClient(supabaseUrl, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+// Hoist all env reads to module scope — read once per warm invocation
+const CRON_SECRET = Deno.env.get("FBAI_CRON_SECRET");
+const AI_API_KEY = Deno.env.get("FBAI_AI_API_KEY");
+const LLM_PROVIDER = Deno.env.get("FBAI_LLM_PROVIDER") ?? "openrouter";
+const LLM_MODEL = Deno.env.get("FBAI_LLM_MODEL") ?? "meta-llama/llama-3.3-70b-instruct:free";
+const LLM_BASE_URL = Deno.env.get("FBAI_LLM_BASE_URL") || "";
+const IMAGE_PROVIDER = Deno.env.get("FBAI_IMAGE_PROVIDER") ?? "pollinations";
+const IMAGE_MODEL = Deno.env.get("FBAI_IMAGE_MODEL") ?? "flux";
+const IMAGE_API_KEY = Deno.env.get("FBAI_IMAGE_API_KEY");
+const PAGE_TOKEN = Deno.env.get("FBAI_FB_PAGE_TOKEN");
+
 const WORKER_TIMEOUT_MS = 50_000;
 
 async function runWithTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
@@ -103,7 +114,6 @@ Deno.serve(async (request) => {
   // x-automation-secret header. No JWT/user auth exists in the current BYOB
   // single-user model. If multi-tenant auth is added later, replace this with
   // proper JWT verification tied to the caller's session.
-  const expectedSecret = Deno.env.get("FBAI_CRON_SECRET");
   const suppliedSecret = request.headers.get("x-automation-secret");
   if (expectedSecret && suppliedSecret !== expectedSecret) {
     return json({ error: "Invalid automation secret." }, 401);
@@ -331,14 +341,11 @@ async function planContent(page: Page, horizonDays: number) {
 async function generateBriefIdeas(page: Page, slots: Date[]) {
   if (!await isProviderAvailable("llm")) return [];
 
-  const aiKey = Deno.env.get("FBAI_AI_API_KEY");
-  const provider = Deno.env.get("FBAI_LLM_PROVIDER") ?? "openrouter";
-  const model = Deno.env.get("FBAI_LLM_MODEL") ?? "meta-llama/llama-3.3-70b-instruct:free";
-  const baseUrl = (Deno.env.get("FBAI_LLM_BASE_URL") || defaultLlmBaseUrl(provider)).replace(
+  const baseUrl = (LLM_BASE_URL || defaultLlmBaseUrl(LLM_PROVIDER)).replace(
     /\/+$/,
     "",
   );
-  if (!aiKey || !baseUrl) return [];
+  if (!AI_API_KEY || !baseUrl) return [];
 
   const insights = await loadInsights(page.id);
   const brandMemory = await loadBrandMemory(page.id);
@@ -368,9 +375,9 @@ async function generateBriefIdeas(page: Page, slots: Date[]) {
   const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
     timeout: 30_000,
-    headers: { "content-type": "application/json", authorization: `Bearer ${aiKey}` },
+    headers: { "content-type": "application/json", authorization: `Bearer ${AI_API_KEY}` },
     body: JSON.stringify({
-      model,
+      model: LLM_MODEL,
       messages: [
         {
           role: "system",
@@ -384,7 +391,7 @@ async function generateBriefIdeas(page: Page, slots: Date[]) {
     }),
   });
   const body = await response.text();
-  await logUsage(page.id, null, provider, model);
+  await logUsage(page.id, null, LLM_PROVIDER, LLM_MODEL);
   if (!response.ok) {
     await recordProviderFailure("llm", `LLM ${response.status}: ${body.slice(0, 240)}`);
     throw new Error(`LLM ${response.status}: ${body.slice(0, 240)}`);
@@ -420,22 +427,20 @@ async function normalizeGeneratedBrief(page: Page, brief: Json, index: number) {
 }
 
 async function maybeGenerateImageUrl(prompt: string): Promise<string | null> {
-  const provider = Deno.env.get("FBAI_IMAGE_PROVIDER") ?? "pollinations";
-  const model = Deno.env.get("FBAI_IMAGE_MODEL") ?? "flux";
   if (!prompt) return null;
-  if (provider === "pollinations") {
-    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?model=${encodeURIComponent(model)}&nologo=true`;
+  if (IMAGE_PROVIDER === "pollinations") {
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?model=${encodeURIComponent(IMAGE_MODEL)}&nologo=true`;
   }
-  if (provider === "openai_dalle" && Deno.env.get("FBAI_IMAGE_API_KEY")) {
+  if (IMAGE_PROVIDER === "openai_dalle" && IMAGE_API_KEY) {
     if (!await isProviderAvailable("image")) return null;
     const response = await fetchWithTimeout("https://api.openai.com/v1/images/generations", {
       method: "POST",
       timeout: 20_000,
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${Deno.env.get("FBAI_IMAGE_API_KEY")}`,
+        authorization: `Bearer ${IMAGE_API_KEY}`,
       },
-      body: JSON.stringify({ model, prompt, size: "1024x1024", n: 1 }),
+      body: JSON.stringify({ model: IMAGE_MODEL, prompt, size: "1024x1024", n: 1 }),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -451,8 +456,7 @@ async function publishDuePosts(page: Page) {
   if (!page.fb_page_id) return "Skipped — Facebook page id missing.";
   if (!await isProviderAvailable("facebook")) return "Skipped — Facebook API in cooldown.";
 
-  const token = Deno.env.get("FBAI_FB_PAGE_TOKEN");
-  if (!token) return "Skipped — Facebook page token missing.";
+  if (!PAGE_TOKEN) return "Skipped — Facebook page token missing.";
 
   const { count: publishedToday, error: countError } = await supabase
     .from("posts")
@@ -481,7 +485,7 @@ async function publishDuePosts(page: Page) {
   for (const brief of briefs) {
     const claimed = await claimBriefForPublish(brief.id);
     if (!claimed) continue;
-    await publishBrief(page, brief, token);
+    await publishBrief(page, brief, PAGE_TOKEN);
     published += 1;
   }
   return `Published ${published} due posts.`;
@@ -582,8 +586,7 @@ async function publishBrief(page: Page, brief: Brief, token: string) {
 }
 
 async function captureEngagement(page: Page, windowDays: number) {
-  const token = Deno.env.get("FBAI_FB_PAGE_TOKEN");
-  if (!token) return "Skipped — Facebook page token missing.";
+  if (!PAGE_TOKEN) return "Skipped — Facebook page token missing.";
   if (!await isProviderAvailable("facebook")) return "Skipped — Facebook API in cooldown.";
 
   const since = new Date(Date.now() - windowDays * 86400_000).toISOString();
@@ -598,7 +601,7 @@ async function captureEngagement(page: Page, windowDays: number) {
 
   let captured = 0;
   for (const post of (data ?? []) as { id: string; fb_post_id: string }[]) {
-    const metrics = await fetchFacebookMetrics(post.fb_post_id, token);
+    const metrics = await fetchFacebookMetrics(post.fb_post_id, PAGE_TOKEN);
     if (!metrics) continue;
     await supabase.from("engagement_snapshots").insert({
       post_id: post.id,
