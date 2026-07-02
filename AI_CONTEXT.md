@@ -413,7 +413,7 @@ supabase/functions/
 | Strategy Service | `StrategyService` | `analyzePage(pageId, llmConfig)` — fetches brand memory + strategy insights + 90 days of post history, builds structured LLM prompt, parses JSON recommendations, persists via `insertBatch`, dismisses ALL old recs before insert |
 | Strategy Service | `buildAnalysisPrompt` (exported function) | Pure function — constructs single LLM call combining brand context, strategy insights (best hour, avg score, best topics), and scored post data. Tested directly via import. |
 | Strategy Service | `callLlm` | Uses `proxyFetch`; JSON parse failure returns `[]` instead of throwing; non-OK response throws with status + body excerpt |
-| Worker integration | `generate_strategy` job kind | Handler registered in worker switch statement (stub — actual API key lives on client); no cron activated |
+| Worker integration | `generate_strategy` job kind | **IMPLEMENTED (Phase 4)** — Full worker-side implementation: loads brand memory + insights + post history, builds prompt, calls LLM directly, normalizes & persists via `replace_strategy_recommendations` RPC. Seeded on 6-hour cron loop. Fallback model support via `FBAI_FALLBACK_LLM_MODEL`. |
 | UI | Dashboard strategy panel | Loads existing recs on mount; "Analyze page" button clears dismissed types before analysis; shows recs grouped by type with priority; dismiss button per type |
 | Tests | Strategy service test (Phase 4.1.5) | **14 tests** — brand memory injection, empty memory, average score, top-post ranking, zero-score exclusion from underperforming, empty history, missing engagement snapshots, valid JSON output, `normalizeRecommendations` (6), error sanitization (5), token expiry detection (5), strategy transaction safety (2) |
 
@@ -428,7 +428,7 @@ supabase/functions/
 | Missing `priority` range constraint | **DATA QUALITY** | Added `CHECK (priority >= 0 AND priority <= 10)` to migration 7 |
 | UI `dismissedTypes` not reset on re-analysis | **UX** | `setDismissedTypes(new Set())` added at top of `handleAnalyze` |
 | Missing pagination | **LOW** | Not added — page typically has <200 recs; `findByPage` sorted by priority desc + generated_at desc |
-| Worker `generate_strategy` stub | **ARCHITECTURE** | Intentional — AI API key lives on client; worker runs on server without user keys |
+| Worker `generate_strategy` stub | **FIXED (Phase 4)** | Replaced with full implementation — worker calls LLM directly using `FBAI_AI_API_KEY` env var. Frontend still has independent `StrategyService.analyzePage()` for manual trigger. |
 | **No upstream timeout** in `/api/proxy` | **SAFETY** | Added `AbortController` with 30s timeout on upstream fetch |
 | **No structured logging** in `callLlm` | **OBSERVABILITY** | Added `this.log("info", ...)` before call, on failure, and on success with recommendation count |
 | **No response validation** — any shape accepted | **SAFETY** | Added `normalizeRecommendations()` — filters out items missing `recommendation_type` or `recommendation_text`; fills defaults for optional fields |
@@ -438,8 +438,8 @@ supabase/functions/
 
 | Concern | Detail |
 |---------|--------|
-| Single LLM call = single point of failure | If the AI call fails (network, rate limit, model down), user sees an error with no recommendations (unless cached recs exist from a previous analysis) |
-| No cron for auto-generation | `generate_strategy` worker stub exists but requires user API key on client — cron cannot activate without server-side key storage |
+| Single LLM call = single point of failure | **MITIGATED (Phase 4)** — Worker has retry-with-fallback-model (`FBAI_FALLBACK_LLM_MODEL`). If primary model fails, tries fallback before failing. Frontend falls back to cached recommendations. |
+| Auto cron for strategy generation | **IMPLEMENTED (Phase 4)** — `generate_strategy` seeded on 6-hour loop via `seedRecurringJobs()`. Worker calls LLM directly with `FBAI_AI_API_KEY` env var. |
 | AI output quality varies by model | Free-tier models may return generic recommendations. `normalizeRecommendations()` filters structurally invalid items but cannot validate semantic quality |
 | No recommendation dedup within a session | `dismissAll` clears old recs before insert so there are no duplicates across sessions. Within a single `analyzePage` call, the AI may return duplicate types — no dedup applied |
 | No recommendation storage pagination | Page typically has <200 recs; DB query sorted by priority desc + generated_at desc with no limit |
@@ -505,8 +505,8 @@ supabase/functions/
 | useAuroraQuery still uses direct repos | MEDIUM | Draft operations and schedule queries still bypass service layer — extract to DraftService — **Phase 3: DONE** |
 | Large bundle size | MEDIUM | Route-based lazy loading; tree-shake unused Radix UI; review GlassCard and analytics bundles — **Phase 3: DONE** (React.lazy for analytics) |
 | Strategy: AI output quality varies by model | LOW | Free-tier models may return generic or off-topic recommendations; consider model tier validation |
-| Strategy: No cron for auto-generation | LOW | `generate_strategy` worker stub exists but requires user API key on client — cron cannot activate without server-side key storage |
-| Strategy: Single LLM call = single point of failure | LOW | If the call fails (network, rate limit, model down), the user sees an error with no fallback recommendations |
+| Strategy: Auto cron | **FIXED (Phase 4)** | `generate_strategy` seeded on 6-hour loop; worker calls LLM directly via `FBAI_AI_API_KEY` |
+| Strategy: Single LLM call = single point of failure | **FIXED (Phase 4)** | Worker retries with fallback model (`FBAI_FALLBACK_LLM_MODEL`) before failing; frontend falls back to cached recs |
 | Image optimization | LOW | Add WebP/AVIF pipeline for uploaded images |
 | API key rotation | LOW | No built-in mechanism to rotate or revoke stored API keys |
 | Worker cold starts | LOW | Deno Edge Function cold start can delay job processing by 1–2s |
@@ -1180,7 +1180,7 @@ These constraints ensure Aurora can expand to multi-platform, SaaS, or enterpris
 
 ### Worker Extensibility
 - **Adding a new job kind:** Register the handler in the worker switch statement, add cron schedule via `pg_cron`, add repository for any new tables.
-- Job kinds currently registered: `plan_content`, `publish_due_posts`, `capture_engagement`, `compute_strategy`, `generate_strategy` (stub), `extract_brand_memory`
+- Job kinds currently registered: `plan_content`, `publish_due_posts`, `capture_engagement`, `compute_strategy`, `generate_strategy` **(Phase 4: full implementation)**, `extract_brand_memory`
 
 ---
 
@@ -1257,7 +1257,7 @@ These constraints ensure Aurora can expand to multi-platform, SaaS, or enterpris
 - Migration 7: strategy_recommendations table
 - StrategyRepository (findByPage, insert, insertBatch, dismiss, dismissAll, loadInsights)
 - StrategyService (analyzePage, buildAnalysisPrompt, callLlm, normalizeRecommendations)
-- Worker integration: generate_strategy job kind (stub)
+- Worker integration: generate_strategy job kind **(Phase 4: full implementation with fallback model)**
 - Dashboard UI: strategy recommendations panel
 - 14 tests for strategy service
 - Intelligence Quality Pass: 12 fixes (BUG, PERFORMANCE, SAFETY, MAINTENANCE, DATA QUALITY, UX, OBSERVABILITY, RESILIENCE)
