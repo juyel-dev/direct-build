@@ -45,7 +45,7 @@ function validateQuery(query: string): string | null {
 }
 
 Deno.serve(async (request) => {
-  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (request.method === "OPTIONS") return new Response("ok", { headers: { ...corsHeaders, "x-content-type-options": "nosniff", "x-frame-options": "DENY", "referrer-policy": "strict-origin-when-cross-origin" } });
   if (request.method !== "POST") return json({ error: "Use POST" }, 405);
 
   // Auth uses the user's Supabase Personal Access Token (PAT) passed in the
@@ -122,6 +122,12 @@ Deno.serve(async (request) => {
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "content-type": "application/json" },
+    headers: {
+      ...corsHeaders,
+      "content-type": "application/json",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      "referrer-policy": "strict-origin-when-cross-origin",
+    },
   });
 }

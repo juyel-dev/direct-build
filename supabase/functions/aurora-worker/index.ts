@@ -106,7 +106,7 @@ async function runWithTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promi
 }
 
 Deno.serve(async (request) => {
-  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (request.method === "OPTIONS") return new Response("ok", { headers: { ...corsHeaders, "x-content-type-options": "nosniff", "x-frame-options": "DENY", "referrer-policy": "strict-origin-when-cross-origin" } });
   if (request.method !== "POST") return json({ error: "Use POST." }, 405);
 
   // Auth uses a shared secret (FBAI_CRON_SECRET) set at deploy time because
@@ -115,7 +115,7 @@ Deno.serve(async (request) => {
   // single-user model. If multi-tenant auth is added later, replace this with
   // proper JWT verification tied to the caller's session.
   const suppliedSecret = request.headers.get("x-automation-secret");
-  if (expectedSecret && suppliedSecret !== expectedSecret) {
+  if (CRON_SECRET && suppliedSecret !== CRON_SECRET) {
     return json({ error: "Invalid automation secret." }, 401);
   }
 
@@ -964,6 +964,12 @@ function messageOf(error: unknown) {
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "content-type": "application/json" },
+    headers: {
+      ...corsHeaders,
+      "content-type": "application/json",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      "referrer-policy": "strict-origin-when-cross-origin",
+    },
   });
 }
