@@ -81,6 +81,7 @@ export const ContentBriefSchema = z.object({
   image_url: z.string().nullable().default(null),
   hook: z.string().default(""),
   cta: z.string().default(""),
+  prompt_version: z.string().default("unknown"),
   status: z
     .enum(["draft", "approved", "scheduled", "published", "skipped", "failed"])
     .default("draft"),

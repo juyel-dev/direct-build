@@ -654,4 +654,21 @@ where id = 1;
 insert into public._migrations (id, name) values (9, 'strategy_versioning') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 10,
+    name: "content_brief_prompt_version",
+    sql: `
+-- Track which prompt version generated each content brief
+alter table public.content_briefs
+  add column if not exists prompt_version text not null default 'unknown';
+
+update public.app_settings
+set schema_version = 10,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('content_brief_prompt_version', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (10, 'content_brief_prompt_version') on conflict (id) do nothing;
+`,
+  },
 ];

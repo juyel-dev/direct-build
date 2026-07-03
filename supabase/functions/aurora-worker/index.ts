@@ -333,6 +333,7 @@ async function planContent(page: Page, horizonDays: number) {
     hook: ideas[index]?.hook ?? "",
     cta: ideas[index]?.cta ?? "",
     predicted_engagement_score: ideas[index]?.predicted_engagement_score ?? null,
+    prompt_version: PROMPT_VERSION,
     status,
   }));
   const { error: insertError } = await supabase.from("content_briefs").upsert(rows, {
