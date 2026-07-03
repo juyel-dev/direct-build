@@ -4,7 +4,7 @@ import {
   saveSecrets,
   SecretsSchema,
   hasStoredSecrets,
-  getSessionPassphrase,
+  getSessionPassphrase, loadPassphraseHint,
   loadProviders,
   saveProviders,
   ProvidersSchema,
@@ -152,6 +152,7 @@ export function SettingsHub() {
   );
 
   if (needsUnlock) {
+    const hint = loadPassphraseHint();
     return (
       <GlassCard className="p-6">
         <div className="flex items-center gap-3 mb-4">
@@ -163,6 +164,7 @@ export function SettingsHub() {
             <p className="text-xs text-muted-foreground">
               Your credentials are encrypted in this browser.
             </p>
+            {hint && <p className="text-xs text-muted-foreground mt-1">Hint: {hint}</p>}
           </div>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">

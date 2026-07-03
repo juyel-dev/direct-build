@@ -84,6 +84,7 @@ const KEY_PROVIDERS = "fbai.providers.v1";
 const KEY_BRAND = "fbai.brand.v1";
 const KEY_INSTALL = "fbai.install.v1";
 const KEY_PASSPHRASE_SET = "fbai.passphrase.isSet";
+const KEY_PASSPHRASE_HINT = "fbai.passphrase.hint";
 const SESSION_PASSPHRASE = "fbai.sess.passphrase";
 
 export function isPassphraseSet(): boolean {
@@ -169,12 +170,75 @@ export function saveInstallStatus(s: InstallStatus) {
   localStorage.setItem(KEY_INSTALL, JSON.stringify(InstallStatusSchema.parse(s)));
 }
 
+export function savePassphraseHint(hint: string) {
+  localStorage.setItem(KEY_PASSPHRASE_HINT, hint);
+}
+export function loadPassphraseHint(): string {
+  return localStorage.getItem(KEY_PASSPHRASE_HINT) ?? "";
+}
+
+export function getEncryptedSecretsBlob(): string | null {
+  return localStorage.getItem(KEY_SECRETS_CIPHER);
+}
+
+export function setEncryptedSecretsBlob(cipher: string) {
+  localStorage.setItem(KEY_SECRETS_CIPHER, cipher);
+  localStorage.setItem(KEY_PASSPHRASE_SET, "1");
+}
+
+export type BackupDump = {
+  exportedAt: string;
+  secretsCipher: string | null;
+  providers: string | null;
+  brand: string | null;
+  install: string | null;
+  passphraseHint: string | null;
+};
+
+export function exportBackup(): BackupDump {
+  return {
+    exportedAt: new Date().toISOString(),
+    secretsCipher: localStorage.getItem(KEY_SECRETS_CIPHER),
+    providers: localStorage.getItem(KEY_PROVIDERS),
+    brand: localStorage.getItem(KEY_BRAND),
+    install: localStorage.getItem(KEY_INSTALL),
+    passphraseHint: localStorage.getItem(KEY_PASSPHRASE_HINT),
+  };
+}
+
+export function importBackup(dump: BackupDump): string[] {
+  const restored: string[] = [];
+  if (dump.secretsCipher) {
+    localStorage.setItem(KEY_SECRETS_CIPHER, dump.secretsCipher);
+    localStorage.setItem(KEY_PASSPHRASE_SET, "1");
+    restored.push("secrets");
+  }
+  if (dump.providers) {
+    localStorage.setItem(KEY_PROVIDERS, dump.providers);
+    restored.push("providers");
+  }
+  if (dump.brand) {
+    localStorage.setItem(KEY_BRAND, dump.brand);
+    restored.push("brand");
+  }
+  if (dump.install) {
+    localStorage.setItem(KEY_INSTALL, dump.install);
+    restored.push("install_status");
+  }
+  if (dump.passphraseHint) {
+    localStorage.setItem(KEY_PASSPHRASE_HINT, dump.passphraseHint);
+    restored.push("passphrase_hint");
+  }
+  return restored;
+}
+
 export function wipeAll() {
   localStorage.removeItem(KEY_SECRETS_CIPHER);
   localStorage.removeItem(KEY_PROVIDERS);
   localStorage.removeItem(KEY_BRAND);
   localStorage.removeItem(KEY_INSTALL);
   localStorage.removeItem(KEY_PASSPHRASE_SET);
+  localStorage.removeItem(KEY_PASSPHRASE_HINT);
   clearSessionPassphrase();
 }
 
