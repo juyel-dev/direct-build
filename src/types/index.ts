@@ -27,6 +27,8 @@ export type Brief = {
   hashtags: string[] | null;
   image_prompt: string | null;
   image_url: string | null;
+  storage_image_path: string | null;
+  image_stored_at: string | null;
   hook: string | null;
   cta: string | null;
   predicted_engagement_score: number | null;

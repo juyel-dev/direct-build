@@ -22,6 +22,8 @@ type Brief = {
   hashtags: string[] | null;
   image_prompt: string | null;
   image_url: string | null;
+  storage_image_path: string | null;
+  image_stored_at: string | null;
   status: string;
 };
 
@@ -90,6 +92,7 @@ const FALLBACK_LLM_MODEL = Deno.env.get("FBAI_FALLBACK_LLM_MODEL");
 const IMAGE_PROVIDER = Deno.env.get("FBAI_IMAGE_PROVIDER") ?? "pollinations";
 const IMAGE_MODEL = Deno.env.get("FBAI_IMAGE_MODEL") ?? "flux";
 const IMAGE_API_KEY = Deno.env.get("FBAI_IMAGE_API_KEY");
+const IMAGE_STORAGE_BUCKET = Deno.env.get("FBAI_IMAGE_STORAGE_BUCKET") || "generated-images";
 const PAGE_TOKEN = Deno.env.get("FBAI_FB_PAGE_TOKEN");
 
 const PROMPT_VERSION = "2026-07-03-v1";
@@ -333,6 +336,8 @@ async function planContent(page: Page, horizonDays: number) {
     hashtags: ideas[index]?.hashtags ?? fallbackHashtags(page),
     image_prompt: ideas[index]?.image_prompt ?? fallbackImagePrompt(page, index),
     image_url: ideas[index]?.image_url ?? null,
+    storage_image_path: ideas[index]?.storage_image_path ?? null,
+    image_stored_at: ideas[index]?.image_stored_at ?? null,
     hook: ideas[index]?.hook ?? "",
     cta: ideas[index]?.cta ?? "",
     predicted_engagement_score: ideas[index]?.predicted_engagement_score ?? null,
@@ -440,6 +445,18 @@ async function generateBriefIdeas(page: Page, slots: Date[]) {
 async function normalizeGeneratedBrief(page: Page, brief: Json, index: number) {
   const imagePrompt =
     typeof brief.image_prompt === "string" ? brief.image_prompt : fallbackImagePrompt(page, index);
+  const externalUrl = await maybeGenerateImageUrl(imagePrompt);
+  let imageUrl = externalUrl;
+  let storagePath: string | null = null;
+  let storedAt: string | null = null;
+  if (externalUrl) {
+    const result = await downloadAndStoreImage(externalUrl, page.id);
+    if (result) {
+      imageUrl = result.publicUrl;
+      storagePath = result.path;
+      storedAt = result.storedAt;
+    }
+  }
   return {
     topic: typeof brief.topic === "string" ? brief.topic : fallbackTopic(page, index),
     caption: typeof brief.caption === "string" ? brief.caption : fallbackCaption(page, index),
@@ -447,7 +464,9 @@ async function normalizeGeneratedBrief(page: Page, brief: Json, index: number) {
       ? brief.hashtags.map(String).slice(0, 8)
       : fallbackHashtags(page),
     image_prompt: imagePrompt,
-    image_url: await maybeGenerateImageUrl(imagePrompt),
+    image_url: imageUrl,
+    storage_image_path: storagePath,
+    image_stored_at: storedAt,
     hook: typeof brief.hook === "string" ? brief.hook : "",
     cta: typeof brief.cta === "string" ? brief.cta : "",
     predicted_engagement_score:
@@ -455,6 +474,35 @@ async function normalizeGeneratedBrief(page: Page, brief: Json, index: number) {
         ? brief.predicted_engagement_score
         : null,
   };
+}
+
+async function downloadAndStoreImage(
+  externalUrl: string,
+  pageId: string,
+): Promise<{ publicUrl: string; path: string; storedAt: string } | null> {
+  try {
+    const response = await fetchWithTimeout(externalUrl, { timeout: 20_000 });
+    if (!response.ok) {
+      log("warn", "Image download failed", { url: externalUrl.slice(0, 80), status: response.status });
+      return null;
+    }
+    const blob = await response.blob();
+    const ext = blob.type.split("/")[1] || "png";
+    const fileName = `${crypto.randomUUID().slice(0, 12)}.${ext}`;
+    const path = `${IMAGE_STORAGE_BUCKET}/${pageId}/${fileName}`;
+    const { error: uploadError } = await supabase.storage
+      .from(IMAGE_STORAGE_BUCKET)
+      .upload(path, blob, { contentType: blob.type, upsert: true });
+    if (uploadError) {
+      log("warn", "Image storage upload failed", { error: messageOf(uploadError) });
+      return null;
+    }
+    const { data } = supabase.storage.from(IMAGE_STORAGE_BUCKET).getPublicUrl(path);
+    return { publicUrl: data.publicUrl, path, storedAt: new Date().toISOString() };
+  } catch (error) {
+    log("warn", "Image download or storage error", { error: messageOf(error) });
+    return null;
+  }
 }
 
 async function maybeGenerateImageUrl(prompt: string): Promise<string | null> {

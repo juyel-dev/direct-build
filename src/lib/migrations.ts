@@ -717,4 +717,22 @@ where id = 1;
 insert into public._migrations (id, name) values (12, 'brand_memory_confidence') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 13,
+    name: "content_briefs_image_storage",
+    sql: `
+-- Add storage columns for image reliability layer
+alter table public.content_briefs
+  add column if not exists storage_image_path text,
+  add column if not exists image_stored_at timestamptz;
+
+update public.app_settings
+set schema_version = 13,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('content_briefs_image_storage', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (13, 'content_briefs_image_storage') on conflict (id) do nothing;
+`,
+  },
 ];

@@ -79,6 +79,8 @@ export const ContentBriefSchema = z.object({
   hashtags: z.array(z.string()).default([]),
   image_prompt: z.string().default(""),
   image_url: z.string().nullable().default(null),
+  storage_image_path: z.string().nullable().default(null),
+  image_stored_at: z.string().datetime().nullable().default(null),
   hook: z.string().default(""),
   cta: z.string().default(""),
   prompt_version: z.string().default("unknown"),
