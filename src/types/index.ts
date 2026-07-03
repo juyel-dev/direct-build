@@ -158,6 +158,8 @@ export type BrandMemory = {
   storytelling_style: string;
   strengths_weaknesses: Json;
   llm_analyzed_at: string | null;
+  confidence_scores: Record<string, number>;
+  sources: Record<string, string>;
   auto_extracted_at: string | null;
   manually_edited_at: string | null;
   created_at: string;

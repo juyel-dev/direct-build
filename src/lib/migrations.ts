@@ -699,4 +699,22 @@ where id = 1;
 insert into public._migrations (id, name) values (11, 'brand_memory_layer1') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 12,
+    name: "brand_memory_confidence",
+    sql: `
+-- Add confidence scores and source tracking to brand_memory
+alter table public.brand_memory
+  add column if not exists confidence_scores jsonb not null default '{}',
+  add column if not exists sources jsonb not null default '{}';
+
+update public.app_settings
+set schema_version = 12,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('brand_memory_confidence', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (12, 'brand_memory_confidence') on conflict (id) do nothing;
+`,
+  },
 ];

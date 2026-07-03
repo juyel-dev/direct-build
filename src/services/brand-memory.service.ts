@@ -20,10 +20,22 @@ export class BrandMemoryService extends BaseService {
 
   async save(pageId: string, memory: Partial<BrandMemory>): Promise<BrandMemory> {
     const existing = await this.repo.findByPageId(pageId);
-    if (existing) {
-      return this.repo.update(pageId, { ...memory, manually_edited_at: new Date().toISOString() });
+    const changedKeys = Object.keys(memory).filter((k) =>
+      k !== "manually_edited_at" && k !== "updated_at" && k !== "sources" && k !== "confidence_scores"
+    );
+    const updatedSources = { ...(existing?.sources ?? {}) };
+    for (const key of changedKeys) {
+      updatedSources[key] = "user_manual";
     }
-    return this.repo.upsert({ page_id: pageId, ...memory, manually_edited_at: new Date().toISOString() });
+    const payload = {
+      ...memory,
+      sources: updatedSources,
+      manually_edited_at: new Date().toISOString(),
+    };
+    if (existing) {
+      return this.repo.update(pageId, payload);
+    }
+    return this.repo.upsert({ page_id: pageId, ...payload });
   }
 
   buildLlmContext(memory: BrandMemory | null): string {

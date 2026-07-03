@@ -25,6 +25,8 @@ describe("buildAnalysisPrompt", () => {
       storytelling_style: "",
       strengths_weaknesses: {},
       llm_analyzed_at: null,
+      confidence_scores: {},
+      sources: {},
       auto_extracted_at: null,
       manually_edited_at: null,
       created_at: "2025-01-01",

@@ -850,6 +850,26 @@ async function extractBrandMemory(page: Page) {
     .map(([e]) => e);
 
   const now = new Date().toISOString();
+  const capCount = captionLengths.length;
+  const htCount = hashtagCounts.length;
+  const confidenceCap = (n: number, threshold: number) => Math.round(Math.min(n / threshold, 1) * 100) / 100;
+  const confidenceScores = {
+    best_posting_days: confidenceCap(totalPosts, 15),
+    caption_length_avg: confidenceCap(capCount, 10),
+    emoji_usage: confidenceCap(totalPosts, 10),
+    cta_frequency: confidenceCap(totalPosts, 10),
+    media_usage_ratio: confidenceCap(totalPosts, 10),
+    hashtag_count_avg: confidenceCap(htCount, 10),
+  };
+  const sources = {
+    best_posting_days: "auto_extracted",
+    caption_length_avg: "auto_extracted",
+    emoji_usage: "auto_extracted",
+    cta_frequency: "auto_extracted",
+    media_usage_ratio: "auto_extracted",
+    hashtag_count_avg: "auto_extracted",
+  };
+
   const { error: upsertError } = await supabase.from("brand_memory").upsert({
     page_id: page.id,
     writing_style_notes: Array.from(tones).length
@@ -867,12 +887,15 @@ async function extractBrandMemory(page: Page) {
     cta_frequency: ctaFreq,
     media_usage_ratio: mediaRatio,
     hashtag_count_avg: avgHashtagCount,
+    confidence_scores: confidenceScores,
+    sources: sources,
     auto_extracted_at: now,
     updated_at: now,
   }, { onConflict: "page_id" });
 
   if (upsertError) throw upsertError;
-  return `Extracted brand memory from ${posts.length} posts (${bestDays.join(", ")} best days, ${topEmojis.length} emojis, ${ctaFreq} CTAs).`;
+  const avgConf = Object.values(confidenceScores).reduce((a, b) => a + b, 0) / Object.keys(confidenceScores).length;
+  return `Extracted brand memory from ${posts.length} posts (${bestDays.join(", ")} best days, ${topEmojis.length} emojis, ${ctaFreq} CTAs, confidence: ${Math.round(avgConf * 100)}%).`;
 }
 
 async function analyzeBrandLlm(page: Page) {
@@ -994,12 +1017,27 @@ async function parseAndStoreBrandLlm(pageId: string, body: string): Promise<stri
   }
 
   const now = new Date().toISOString();
+  const confidenceScores = {
+    brand_personality: 0.8,
+    content_pillars: 0.75,
+    storytelling_style: 0.7,
+    strengths_weaknesses: 0.65,
+  };
+  const sources = {
+    brand_personality: "llm_analysis",
+    content_pillars: "llm_analysis",
+    storytelling_style: "llm_analysis",
+    strengths_weaknesses: "llm_analysis",
+  };
+
   const { error } = await supabase.from("brand_memory").upsert({
     page_id: pageId,
     brand_personality: typeof data.brand_personality === "string" ? data.brand_personality : "",
     content_pillars: Array.isArray(data.content_pillars) ? data.content_pillars : [],
     storytelling_style: typeof data.storytelling_style === "string" ? data.storytelling_style : "",
     strengths_weaknesses: { strengths: data.strengths ?? [], weaknesses: data.weaknesses ?? [] },
+    confidence_scores: confidenceScores,
+    sources: sources,
     llm_analyzed_at: now,
     updated_at: now,
   }, { onConflict: "page_id" });
@@ -1008,7 +1046,8 @@ async function parseAndStoreBrandLlm(pageId: string, body: string): Promise<stri
     log("warn", "Failed to store LLM brand analysis", { page_id: pageId, error: messageOf(error) });
     return "Brand LLM analysis computed but failed to save.";
   }
-  return `Brand LLM analysis saved (personality: ${(data.brand_personality as string)?.slice(0, 60) || "N/A"}).`;
+  const avgConf = Object.values(confidenceScores).reduce((a, b) => a + b, 0) / Object.keys(confidenceScores).length;
+  return `Brand LLM analysis saved (personality: ${(data.brand_personality as string)?.slice(0, 60) || "N/A"}, confidence: ${Math.round(avgConf * 100)}%).`;
 }
 
 type PostWithEngagement = {
