@@ -13,7 +13,7 @@ export type LlmConfig = {
 };
 
 export type PostWithMetrics = {
-  content_briefs?: { topic?: string; caption?: string; hashtags?: string[] };
+  content_briefs?: { topic?: string; caption?: string; hashtags?: string[]; predicted_engagement_score?: number | null };
   engagement_snapshots?: Array<{ likes?: number; comments?: number; shares?: number; captured_at?: string }>;
   published_at?: string;
 };
@@ -72,6 +72,38 @@ export function normalizeRecommendations(raw: unknown[]): ValidRecommendation[] 
   }));
 }
 
+// Mirrors supabase/functions/aurora-worker/index.ts computeQualityFeedback
+// Keep both copies in sync when making changes
+function computeQualityFeedback(posts: PostWithMetrics[]): string {
+  const byTopic = new Map<string, { predicted: number[]; actual: number[]; count: number }>();
+  for (const p of posts) {
+    const brief = p.content_briefs;
+    if (!brief || !brief.topic) continue;
+    const predicted = brief.predicted_engagement_score;
+    if (predicted == null) continue;
+    const snaps = p.engagement_snapshots ?? [];
+    const latest = snaps[snaps.length - 1] ?? {};
+    const actual = (latest.likes ?? 0) + (latest.comments ?? 0) * 2 + (latest.shares ?? 0) * 3;
+    const entry = byTopic.get(brief.topic) ?? { predicted: [], actual: [], count: 0 };
+    entry.predicted.push(predicted);
+    entry.actual.push(actual);
+    entry.count++;
+    byTopic.set(brief.topic, entry);
+  }
+  const lines: string[] = [];
+  for (const [topic, data] of byTopic) {
+    if (data.count < 2) continue;
+    const avgPred = data.predicted.reduce((a, b) => a + b, 0) / data.predicted.length;
+    const avgAct = data.actual.reduce((a, b) => a + b, 0) / data.actual.length;
+    const delta = avgAct - avgPred;
+    const sign = delta >= 0 ? "+" : "";
+    lines.push(`- ${topic}: predicted ${avgPred.toFixed(1)}, actual ${avgAct.toFixed(1)} (${sign}${delta.toFixed(1)} delta)`);
+  }
+  return lines.length ? `Quality feedback (predicted vs actual):\n${lines.join("\n")}` : "";
+}
+
+// Mirrors supabase/functions/aurora-worker/index.ts buildStrategyPrompt
+// Keep both copies in sync when making prompt/logic changes
 export function buildAnalysisPrompt(
   memory: BrandMemory | null,
   insights: Record<string, unknown>,
@@ -116,6 +148,9 @@ export function buildAnalysisPrompt(
   for (const h of hours) hourCounts.set(h, (hourCounts.get(h) ?? 0) + 1);
   const bestHour = Array.from(hourCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
+  const qualityFeedback = computeQualityFeedback(posts);
+  const qfLines = qualityFeedback ? qualityFeedback.split("\n") : [];
+
   return JSON.stringify({
     task: "Analyze this Facebook page's content performance and generate 3-5 strategic recommendations.",
     brand: brandContext,
@@ -125,6 +160,7 @@ export function buildAnalysisPrompt(
       avg_engagement_rate: insights.avg_engagement_rate ?? null,
       average_post_score: avgScore,
     },
+    quality_feedback: qfLines.length ? qfLines : undefined,
     top_performing_posts: topPosts.map((p) => ({
       topic: p.topic,
       caption: p.caption,

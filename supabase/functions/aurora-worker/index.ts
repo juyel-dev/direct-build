@@ -1094,6 +1094,8 @@ async function loadPostHistoryWithEngagement(pageId: string, windowDays: number)
   return (data ?? []) as PostWithEngagement[];
 }
 
+// Mirrors src/services/strategy.service.ts computeQualityFeedback
+// Keep both copies in sync when making changes
 function computeQualityFeedback(posts: PostWithEngagement[]): string {
   const byTopic = new Map<string, { predicted: number[]; actual: number[]; count: number }>();
   for (const p of posts) {
@@ -1122,6 +1124,8 @@ function computeQualityFeedback(posts: PostWithEngagement[]): string {
   return lines.length ? `Quality feedback (predicted vs actual):\n${lines.join("\n")}` : "";
 }
 
+// Mirrors src/services/strategy.service.ts buildAnalysisPrompt
+// Keep both copies in sync when making prompt/logic changes
 function buildStrategyPrompt(
   memory: BrandMemoryRow | null,
   insights: Record<string, unknown>,
