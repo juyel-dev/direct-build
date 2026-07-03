@@ -393,7 +393,8 @@ async function generateBriefIdeas(page: Page, slots: Date[]) {
     }),
   });
   const body = await response.text();
-  await logUsage(page.id, null, LLM_PROVIDER, LLM_MODEL);
+  const usage = extractLlmUsage(body);
+  await logUsage(page.id, null, LLM_PROVIDER, LLM_MODEL, usage);
   if (!response.ok) {
     await recordProviderFailure("llm", `LLM ${response.status}: ${body.slice(0, 240)}`);
     throw new Error(`LLM ${response.status}: ${body.slice(0, 240)}`);
@@ -918,7 +919,8 @@ async function callLlmForStrategy(
     }),
   });
   const body = await response.text();
-  await logUsage(pageId, null, LLM_PROVIDER, model);
+  const usage = extractLlmUsage(body);
+  await logUsage(pageId, null, LLM_PROVIDER, model, usage);
   if (!response.ok) {
     await recordProviderFailure("llm", `Strategy LLM ${response.status}: ${body.slice(0, 240)}`);
     throw new Error(`Strategy LLM call failed (${response.status}): ${body.slice(0, 240)}`);
@@ -1048,8 +1050,52 @@ async function loadBrandMemory(pageId: string): Promise<BrandMemoryRow | null> {
   return data as BrandMemoryRow | null;
 }
 
-async function logUsage(pageId: string, jobId: string | null, provider: string, model: string) {
-  await supabase.from("ai_usage").insert({ page_id: pageId, job_id: jobId, provider, model });
+type LlmUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+function extractLlmUsage(body: string): LlmUsage {
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed?.usage?.prompt_tokens != null) {
+      return {
+        prompt_tokens: parsed.usage.prompt_tokens,
+        completion_tokens: parsed.usage.completion_tokens,
+        total_tokens: parsed.usage.total_tokens,
+      };
+    }
+  } catch { /* ignore parse errors */ }
+  return {};
+}
+
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  "meta-llama/llama-3.3-70b-instruct": { input: 0.59, output: 0.79 },
+  "gpt-4o": { input: 2.50, output: 10.00 },
+  "gpt-4o-mini": { input: 0.15, output: 0.60 },
+  "claude-3-5-sonnet": { input: 3.00, output: 15.00 },
+  "claude-3-haiku": { input: 0.25, output: 1.25 },
+};
+
+function estimateCost(promptTokens: number, completionTokens: number, model: string): number {
+  const pricing = Object.entries(MODEL_PRICING).find(([key]) => model.startsWith(key))?.[1];
+  if (!pricing) return 0;
+  return (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000;
+}
+
+async function logUsage(pageId: string, jobId: string | null, provider: string, model: string, usage: LlmUsage = {}) {
+  const promptTokens = usage.prompt_tokens ?? 0;
+  const completionTokens = usage.completion_tokens ?? 0;
+  await supabase.from("ai_usage").insert({
+    page_id: pageId,
+    job_id: jobId,
+    provider,
+    model,
+    input_tokens: promptTokens,
+    output_tokens: completionTokens,
+    estimated_cost_usd: estimateCost(promptTokens, completionTokens, model),
+  });
 }
 
 async function event(severity: string, category: string, message: string, metadata: Json = {}) {
