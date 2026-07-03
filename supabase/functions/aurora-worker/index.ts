@@ -362,6 +362,8 @@ async function generateBriefIdeas(page: Page, slots: Date[]) {
   const brandSnippets = (brandMemory?.top_content_snippets ?? []) as Array<{
     topic?: string; caption?: string; score?: number;
   }>;
+  const posts = await loadPostHistoryWithEngagement(page.id, 90);
+  const qualityFeedback = computeQualityFeedback(posts);
   const prompt = {
     brand: page.fb_page_name,
     voice: page.default_brand_voice ?? "",
@@ -378,6 +380,7 @@ async function generateBriefIdeas(page: Page, slots: Date[]) {
       caption: typeof s.caption === "string" ? s.caption.slice(0, 280) : "",
     })),
     avoided_topics: brandMemory?.avoided_topics ?? [],
+    quality_feedback: qualityFeedback || undefined,
     slots: slots.map((slot) => slot.toISOString()),
   };
 
@@ -1053,7 +1056,7 @@ async function parseAndStoreBrandLlm(pageId: string, body: string): Promise<stri
 type PostWithEngagement = {
   published_at: string | null;
   engagement_snapshots: Array<{ likes?: number; comments?: number; shares?: number; captured_at?: string }> | null;
-  content_briefs: { topic?: string | null; caption?: string | null } | null;
+  content_briefs: { topic?: string | null; caption?: string | null; predicted_engagement_score?: number | null } | null;
 };
 
 type StrategyRec = {
@@ -1082,13 +1085,41 @@ async function loadPostHistoryWithEngagement(pageId: string, windowDays: number)
   const since = new Date(Date.now() - windowDays * 86400_000).toISOString();
   const { data, error } = await supabase
     .from("posts")
-    .select("published_at, engagement_snapshots(likes, comments, shares, captured_at), content_briefs(topic, caption)")
+    .select("published_at, engagement_snapshots(likes, comments, shares, captured_at), content_briefs(topic, caption, predicted_engagement_score)")
     .eq("page_id", pageId)
     .eq("status", "published")
     .gte("published_at", since)
     .order("published_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as PostWithEngagement[];
+}
+
+function computeQualityFeedback(posts: PostWithEngagement[]): string {
+  const byTopic = new Map<string, { predicted: number[]; actual: number[]; count: number }>();
+  for (const p of posts) {
+    const brief = p.content_briefs;
+    if (!brief || !brief.topic) continue;
+    const predicted = brief.predicted_engagement_score;
+    if (predicted == null) continue;
+    const snaps = p.engagement_snapshots ?? [];
+    const latest = snaps[snaps.length - 1] ?? {};
+    const actual = (latest.likes ?? 0) + (latest.comments ?? 0) * 2 + (latest.shares ?? 0) * 3;
+    const entry = byTopic.get(brief.topic) ?? { predicted: [], actual: [], count: 0 };
+    entry.predicted.push(predicted);
+    entry.actual.push(actual);
+    entry.count++;
+    byTopic.set(brief.topic, entry);
+  }
+  const lines: string[] = [];
+  for (const [topic, data] of byTopic) {
+    if (data.count < 2) continue;
+    const avgPred = data.predicted.reduce((a, b) => a + b, 0) / data.predicted.length;
+    const avgAct = data.actual.reduce((a, b) => a + b, 0) / data.actual.length;
+    const delta = avgAct - avgPred;
+    const sign = delta >= 0 ? "+" : "";
+    lines.push(`- ${topic}: predicted ${avgPred.toFixed(1)}, actual ${avgAct.toFixed(1)} (${sign}${delta.toFixed(1)} delta)`);
+  }
+  return lines.length ? `Quality feedback (predicted vs actual):\n${lines.join("\n")}` : "";
 }
 
 function buildStrategyPrompt(
@@ -1127,6 +1158,9 @@ function buildStrategyPrompt(
       ].filter(Boolean).join(" ")
     : "No brand memory yet.";
 
+  const qualityFeedback = computeQualityFeedback(posts);
+  const qfLines = qualityFeedback ? qualityFeedback.split("\n") : [];
+
   return JSON.stringify({
     task: "Analyze this Facebook page's content performance and generate 3-5 strategic recommendations.",
     brand: brandContext,
@@ -1136,6 +1170,7 @@ function buildStrategyPrompt(
       avg_engagement_rate: insights.avg_engagement_rate ?? null,
       average_post_score: avgScore,
     },
+    quality_feedback: qfLines.length ? qfLines : undefined,
     top_performing_posts: topPosts.map((p) => ({
       topic: p.topic, caption: p.caption, likes: p.likes, comments: p.comments, shares: p.shares, score: p.score,
     })),
