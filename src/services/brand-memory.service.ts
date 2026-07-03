@@ -101,6 +101,15 @@ export class BrandMemoryService extends BaseService {
       .slice(0, 10)
       .map(([tag]) => tag);
 
+    const totalPosts = posts.length;
+    const ctaRatio = totalPosts > 0
+      ? posts.filter((p) => p.content_briefs?.caption
+          ? /\b(click|sign\s*up|subscribe|visit|share|follow|try)\b/i.test(p.content_briefs.caption)
+          : false
+        ).length / totalPosts
+      : null;
+    const ctaCategory = ctaRatio == null ? "unknown" : ctaRatio < 0.1 ? "rare" : ctaRatio < 0.3 ? "occasional" : "frequent";
+
     return {
       brand_descriptors: [],
       writing_style_notes: Array.from(tones).length
@@ -112,6 +121,12 @@ export class BrandMemoryService extends BaseService {
         caption: s.caption.slice(0, 200),
         score: s.score,
       })),
+      best_posting_days: [],
+      caption_length_avg: null,
+      emoji_usage: [],
+      cta_frequency: ctaCategory,
+      media_usage_ratio: null,
+      hashtag_count_avg: null,
       auto_extracted_at: new Date().toISOString(),
     };
   }

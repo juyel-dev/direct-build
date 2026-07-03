@@ -671,4 +671,32 @@ where id = 1;
 insert into public._migrations (id, name) values (10, 'content_brief_prompt_version') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 11,
+    name: "brand_memory_layer1",
+    sql: `
+-- Expand brand_memory with Layer 1 deterministic analytics fields
+alter table public.brand_memory
+  add column if not exists best_posting_days text[] not null default '{}',
+  add column if not exists caption_length_avg numeric,
+  add column if not exists emoji_usage text[] not null default '{}',
+  add column if not exists cta_frequency text not null default 'rare',
+  add column if not exists media_usage_ratio numeric,
+  add column if not exists hashtag_count_avg numeric,
+  -- Layer 2 LLM-generated fields
+  add column if not exists brand_personality text not null default '',
+  add column if not exists content_pillars text[] not null default '{}',
+  add column if not exists storytelling_style text not null default '',
+  add column if not exists strengths_weaknesses jsonb not null default '{}',
+  add column if not exists llm_analyzed_at timestamptz;
+
+update public.app_settings
+set schema_version = 11,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('brand_memory_layer1', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (11, 'brand_memory_layer1') on conflict (id) do nothing;
+`,
+  },
 ];

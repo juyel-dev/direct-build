@@ -739,6 +739,13 @@ async function computeStrategy(page: Page, windowDays: number) {
   return `Updated strategy insights from ${data?.length ?? 0} posts.`;
 }
 
+const EMOJI_RE = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu;
+const CTA_WORDS = /\b(click|sign\s*up|subscribe|visit|share|follow|try|shop|buy|donate|register|learn\s*more|get\s*started|join|contact)\b/i;
+
+type RichBrief = {
+  topic?: string; caption?: string; hashtags?: string[]; image_url?: string | null;
+};
+
 async function extractBrandMemory(page: Page) {
   const windowMs = 90 * 86400_000;
   const since = new Date(Date.now() - windowMs).toISOString();
@@ -746,8 +753,8 @@ async function extractBrandMemory(page: Page) {
   const { data: posts, error: postsError } = await supabase
     .from("posts")
     .select(`
-      id,
-      content_briefs!inner(topic, caption, hashtags),
+      published_at,
+      content_briefs!inner(topic, caption, hashtags, image_url),
       engagement_snapshots(likes, comments, shares, captured_at)
     `)
     .eq("page_id", page.id)
@@ -761,9 +768,16 @@ async function extractBrandMemory(page: Page) {
   const hashtagCount = new Map<string, number>();
   const tones = new Set<string>();
   const snippets: Array<{ topic: string; caption: string; score: number }> = [];
+  const dayScores = new Map<number, number>();
+  const captionLengths: number[] = [];
+  const emojiCount = new Map<string, number>();
+  let ctaPostCount = 0;
+  let mediaPostCount = 0;
+  const hashtagCounts: number[] = [];
 
   for (const post of posts as Array<{
-    content_briefs?: { topic?: string; caption?: string; hashtags?: string[] };
+    published_at?: string;
+    content_briefs?: RichBrief;
     engagement_snapshots?: Array<{ likes?: number; comments?: number; shares?: number }>;
   }>) {
     const brief = post.content_briefs;
@@ -773,11 +787,28 @@ async function extractBrandMemory(page: Page) {
       for (const tag of brief.hashtags) {
         hashtagCount.set(tag, (hashtagCount.get(tag) ?? 0) + 1);
       }
+      hashtagCounts.push(brief.hashtags.length);
     }
 
     const snaps = post.engagement_snapshots ?? [];
     const latest = snaps[snaps.length - 1] ?? {};
     const score = (latest.likes ?? 0) + (latest.comments ?? 0) * 2 + (latest.shares ?? 0) * 3;
+
+    if (post.published_at) {
+      const day = new Date(post.published_at).getUTCDay();
+      dayScores.set(day, (dayScores.get(day) ?? 0) + score);
+    }
+
+    if (brief.caption) {
+      captionLengths.push(brief.caption.length);
+      const emojis = brief.caption.match(EMOJI_RE);
+      if (emojis) {
+        for (const e of emojis) emojiCount.set(e, (emojiCount.get(e) ?? 0) + 1);
+      }
+      if (CTA_WORDS.test(brief.caption)) ctaPostCount++;
+    }
+
+    if (brief.image_url) mediaPostCount++;
 
     if (brief.caption && score > 0) {
       snippets.push({ topic: brief.topic ?? "", caption: brief.caption, score });
@@ -794,6 +825,27 @@ async function extractBrandMemory(page: Page) {
     .slice(0, 10)
     .map(([tag]) => tag);
 
+  const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const bestDays = Array.from(dayScores.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([d]) => DAY_NAMES[d]);
+
+  const totalPosts = posts.length;
+  const avgCaptionLen = captionLengths.length > 0
+    ? Math.round(captionLengths.reduce((a, b) => a + b, 0) / captionLengths.length)
+    : null;
+  const avgHashtagCount = hashtagCounts.length > 0
+    ? Math.round((hashtagCounts.reduce((a, b) => a + b, 0) / hashtagCounts.length) * 10) / 10
+    : null;
+  const mediaRatio = totalPosts > 0 ? Math.round((mediaPostCount / totalPosts) * 100) / 100 : null;
+  const ctaRatio = totalPosts > 0 ? Math.round((ctaPostCount / totalPosts) * 100) / 100 : null;
+  const ctaFreq = ctaRatio == null ? "unknown" : ctaRatio < 0.1 ? "rare" : ctaRatio < 0.3 ? "occasional" : "frequent";
+  const topEmojis = Array.from(emojiCount.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([e]) => e);
+
   const now = new Date().toISOString();
   const { error: upsertError } = await supabase.from("brand_memory").upsert({
     page_id: page.id,
@@ -806,12 +858,18 @@ async function extractBrandMemory(page: Page) {
       caption: typeof s.caption === "string" ? s.caption.slice(0, 200) : "",
       score: s.score,
     })),
+    best_posting_days: bestDays,
+    caption_length_avg: avgCaptionLen,
+    emoji_usage: topEmojis,
+    cta_frequency: ctaFreq,
+    media_usage_ratio: mediaRatio,
+    hashtag_count_avg: avgHashtagCount,
     auto_extracted_at: now,
     updated_at: now,
   }, { onConflict: "page_id" });
 
   if (upsertError) throw upsertError;
-  return `Extracted brand memory from ${posts.length} posts.`;
+  return `Extracted brand memory from ${posts.length} posts (${bestDays.join(", ")} best days, ${topEmojis.length} emojis, ${ctaFreq} CTAs).`;
 }
 
 type PostWithEngagement = {
@@ -1059,6 +1117,12 @@ type BrandMemoryRow = {
   top_content_snippets: Json[];
   tone_guidelines: string;
   avoided_topics: string[];
+  best_posting_days: string[];
+  caption_length_avg: number | null;
+  emoji_usage: string[];
+  cta_frequency: string;
+  media_usage_ratio: number | null;
+  hashtag_count_avg: number | null;
 };
 
 async function loadBrandMemory(pageId: string): Promise<BrandMemoryRow | null> {

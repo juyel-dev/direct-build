@@ -147,6 +147,17 @@ export type BrandMemory = {
   top_content_snippets: Json[];
   tone_guidelines: string;
   avoided_topics: string[];
+  best_posting_days: string[];
+  caption_length_avg: number | null;
+  emoji_usage: string[];
+  cta_frequency: string;
+  media_usage_ratio: number | null;
+  hashtag_count_avg: number | null;
+  brand_personality: string;
+  content_pillars: string[];
+  storytelling_style: string;
+  strengths_weaknesses: Json;
+  llm_analyzed_at: string | null;
   auto_extracted_at: string | null;
   manually_edited_at: string | null;
   created_at: string;
