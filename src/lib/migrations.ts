@@ -600,4 +600,58 @@ where id = 1;
 insert into public._migrations (id, name) values (8, 'strategy_transaction_rpc') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 9,
+    name: "strategy_versioning",
+    sql: `
+-- Add version tracking columns to strategy_recommendations
+alter table public.strategy_recommendations
+  add column if not exists strategy_version text not null default '1.0.0',
+  add column if not exists prompt_version text not null default 'unknown';
+
+-- Update RPC to accept and store version info
+create or replace function public.replace_strategy_recommendations(
+  _page_id uuid,
+  _recommendations jsonb,
+  _prompt_version text default 'unknown',
+  _strategy_version text default '1.0.0'
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.strategy_recommendations
+  set status = 'dismissed'
+  where page_id = _page_id and status = 'active';
+
+  insert into public.strategy_recommendations (
+    page_id, recommendation_type, recommendation_text, reasoning, priority, related_content,
+    prompt_version, strategy_version
+  )
+  select
+    _page_id,
+    (item->>'recommendation_type'),
+    (item->>'recommendation_text'),
+    coalesce(item->>'reasoning', ''),
+    coalesce((item->>'priority')::int, 0),
+    coalesce(item->'related_content', '[]'::jsonb),
+    _prompt_version,
+    _strategy_version
+  from jsonb_array_elements(_recommendations) as item;
+end;
+$$;
+
+grant execute on function public.replace_strategy_recommendations(uuid, jsonb, text, text) to anon, authenticated, service_role;
+
+update public.app_settings
+set schema_version = 9,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('strategy_versioning', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (9, 'strategy_versioning') on conflict (id) do nothing;
+`,
+  },
 ];

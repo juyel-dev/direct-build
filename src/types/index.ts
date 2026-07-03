@@ -133,6 +133,8 @@ export type StrategyRecommendation = {
   related_content: Json;
   generated_at: string;
   status: "active" | "dismissed" | "applied";
+  strategy_version?: string;
+  prompt_version?: string;
 };
 
 export type BrandMemory = {

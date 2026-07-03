@@ -92,6 +92,9 @@ const IMAGE_MODEL = Deno.env.get("FBAI_IMAGE_MODEL") ?? "flux";
 const IMAGE_API_KEY = Deno.env.get("FBAI_IMAGE_API_KEY");
 const PAGE_TOKEN = Deno.env.get("FBAI_FB_PAGE_TOKEN");
 
+const PROMPT_VERSION = "2026-07-03-v1";
+const STRATEGY_VERSION = "1.0.0";
+
 const WORKER_TIMEOUT_MS = 50_000;
 
 async function runWithTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
@@ -982,6 +985,8 @@ async function generateStrategy(page: Page) {
       priority: r.priority,
       related_content: r.related_content ?? [],
     }))),
+    _prompt_version: PROMPT_VERSION,
+    _strategy_version: STRATEGY_VERSION,
   });
   if (rpcError) throw rpcError;
 

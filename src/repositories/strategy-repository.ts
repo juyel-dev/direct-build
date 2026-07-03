@@ -105,6 +105,8 @@ export class StrategyRepository extends BaseRepository {
       priority: number;
       related_content?: unknown[];
     }>,
+    promptVersion = "unknown",
+    strategyVersion = "1.0.0",
   ): Promise<void> {
     if (recs.length === 0) return;
     const { error } = await this.client.rpc("replace_strategy_recommendations", {
@@ -116,6 +118,8 @@ export class StrategyRepository extends BaseRepository {
         priority: r.priority,
         related_content: r.related_content ?? [],
       }))),
+      _prompt_version: promptVersion,
+      _strategy_version: strategyVersion,
     });
     if (error) this.handleError(error, "strategy.replaceAll");
   }
