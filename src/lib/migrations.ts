@@ -752,4 +752,35 @@ where id = 1;
 insert into public._migrations (id, name) values (14, 'content_briefs_image_pin') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 15,
+    name: "analytics_daily_aggregation",
+    sql: `
+-- Daily analytics aggregation table for long-term retention
+create table if not exists public.analytics_daily (
+  id uuid primary key default gen_random_uuid(),
+  page_id uuid not null references public.pages(id) on delete cascade,
+  date date not null,
+  total_likes int not null default 0,
+  total_comments int not null default 0,
+  total_shares int not null default 0,
+  total_reach int not null default 0,
+  total_impressions int not null default 0,
+  post_count int not null default 0,
+  created_at timestamptz not null default now(),
+  unique (page_id, date)
+);
+
+create index if not exists idx_analytics_daily_page_date
+  on public.analytics_daily (page_id, date desc);
+
+update public.app_settings
+set schema_version = 15,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('analytics_daily_aggregation', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (15, 'analytics_daily_aggregation') on conflict (id) do nothing;
+`,
+  },
 ];

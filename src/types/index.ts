@@ -56,6 +56,19 @@ export type Post = {
 
 export type PostStatus = "pending" | "published" | "failed";
 
+export type AnalyticsDaily = {
+  id: string;
+  page_id: string;
+  date: string;
+  total_likes: number;
+  total_comments: number;
+  total_shares: number;
+  total_reach: number;
+  total_impressions: number;
+  post_count: number;
+  created_at: string;
+};
+
 export type EngagementSnapshot = {
   id: string;
   post_id: string;

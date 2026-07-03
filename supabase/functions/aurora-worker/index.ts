@@ -223,6 +223,7 @@ async function seedRecurringJobs(pages: Page[]) {
     await enqueue(page.id, "extract_brand_memory", floorBucket(now, 24 * 60), {}, 0);
     await enqueue(page.id, "analyze_brand_llm", floorBucket(now, 24 * 60), {}, 0);
     await enqueue(page.id, "cleanup_images", floorBucket(now, 24 * 60), {}, 0);
+    await enqueue(page.id, "aggregate_analytics", floorBucket(now, 24 * 60), {}, 0);
     await enqueue(page.id, "generate_strategy", floorBucket(now, 6 * 60), {}, 0);
   }
 }
@@ -287,7 +288,10 @@ async function processJob(job: Job, pages: Page[]) {
       detail = await analyzeBrandLlm(page);
     else if (job.kind === "cleanup_images")
       detail = await cleanupImages(page);
-    else if (job.kind === "generate_strategy")
+    else if (job.kind === "aggregate_analytics") {
+      await aggregateDailyAnalytics(page);
+      detail = await cleanupOldSnapshots(page);
+    } else if (job.kind === "generate_strategy")
       detail = await generateStrategy(page);
     else detail = `Unknown job kind "${job.kind}" skipped.`;
     clearInterval(heartbeatTimer);
@@ -776,6 +780,72 @@ async function fetchFacebookMetrics(fbPostId: string, token: string) {
     reach: insightValues.get("post_impressions_unique") ?? 0,
     impressions: insightValues.get("post_impressions") ?? 0,
   };
+}
+
+async function aggregateDailyAnalytics(page: Page) {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const dateStr = yesterday.toISOString().slice(0, 10);
+  const dayStart = `${dateStr}T00:00:00Z`;
+  const dayEnd = `${dateStr}T23:59:59Z`;
+
+  const { data, error } = await supabase
+    .from("engagement_snapshots")
+    .select("likes, comments, shares, reach, impressions")
+    .gte("captured_at", dayStart)
+    .lte("captured_at", dayEnd);
+  if (error) {
+    log("warn", "Failed to query snapshots for daily aggregation", { page_id: page.id, error: messageOf(error) });
+    return "Error aggregating daily analytics.";
+  }
+  if (!data || data.length === 0) return `No snapshots for ${dateStr}.`;
+
+  let totalLikes = 0, totalComments = 0, totalShares = 0, totalReach = 0, totalImpressions = 0;
+  const seen = new Set<string>();
+  for (const s of data as Array<{ likes: number; comments: number; shares: number; reach: number; impressions: number }>) {
+    totalLikes += s.likes ?? 0;
+    totalComments += s.comments ?? 0;
+    totalShares += s.shares ?? 0;
+    totalReach += s.reach ?? 0;
+    totalImpressions += s.impressions ?? 0;
+    seen.add(`${s.likes}-${s.comments}-${s.shares}`);
+  }
+
+  await supabase.from("analytics_daily").upsert({
+    page_id: page.id,
+    date: dateStr,
+    total_likes: totalLikes,
+    total_comments: totalComments,
+    total_shares: totalShares,
+    total_reach: totalReach,
+    total_impressions: totalImpressions,
+    post_count: seen.size,
+  }, { onConflict: "page_id,date" });
+
+  return `Aggregated ${data.length} snapshots into ${dateStr} analytics.`;
+}
+
+async function cleanupOldSnapshots(page: Page) {
+  const cutoff = new Date(Date.now() - 365 * 86400_000).toISOString();
+  const { data, error } = await supabase
+    .from("engagement_snapshots")
+    .select("id")
+    .lt("captured_at", cutoff);
+  if (error) {
+    log("warn", "Failed to query old snapshots", { page_id: page.id, error: messageOf(error) });
+    return "Error querying old snapshots.";
+  }
+  if (!data || data.length === 0) return "No old snapshots to clean up.";
+  const ids = data.map((s: { id: string }) => s.id);
+  const { error: deleteError } = await supabase
+    .from("engagement_snapshots")
+    .delete()
+    .in("id", ids);
+  if (deleteError) {
+    log("warn", "Failed to delete old snapshots", { page_id: page.id, error: messageOf(deleteError) });
+    return "Error deleting old snapshots.";
+  }
+  return `Cleaned up ${ids.length} snapshots older than 365 days.`;
 }
 
 async function computeStrategy(page: Page, windowDays: number) {
