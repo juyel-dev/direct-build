@@ -217,6 +217,7 @@ async function seedRecurringJobs(pages: Page[]) {
     await enqueue(page.id, "capture_engagement", floorBucket(now, 60), { window_days: 30 }, 0);
     await enqueue(page.id, "compute_strategy", floorBucket(now, 6 * 60), { window_days: 30 }, 0);
     await enqueue(page.id, "extract_brand_memory", floorBucket(now, 24 * 60), {}, 0);
+    await enqueue(page.id, "analyze_brand_llm", floorBucket(now, 24 * 60), {}, 0);
     await enqueue(page.id, "generate_strategy", floorBucket(now, 6 * 60), {}, 0);
   }
 }
@@ -277,6 +278,8 @@ async function processJob(job: Job, pages: Page[]) {
       detail = await computeStrategy(page, Number(job.payload.window_days ?? 30));
     else if (job.kind === "extract_brand_memory")
       detail = await extractBrandMemory(page);
+    else if (job.kind === "analyze_brand_llm")
+      detail = await analyzeBrandLlm(page);
     else if (job.kind === "generate_strategy")
       detail = await generateStrategy(page);
     else detail = `Unknown job kind "${job.kind}" skipped.`;
@@ -872,6 +875,142 @@ async function extractBrandMemory(page: Page) {
   return `Extracted brand memory from ${posts.length} posts (${bestDays.join(", ")} best days, ${topEmojis.length} emojis, ${ctaFreq} CTAs).`;
 }
 
+async function analyzeBrandLlm(page: Page) {
+  if (!AI_API_KEY) return "Skipped — no AI API key configured.";
+  if (!await isProviderAvailable("llm")) return "Skipped — LLM provider in cooldown.";
+
+  const [memory, posts] = await Promise.all([
+    loadBrandMemory(page.id),
+    loadPostHistoryWithEngagement(page.id, 90),
+  ]);
+
+  if (!posts || posts.length < 3) return "Skipped — need at least 3 posts for LLM analysis.";
+  if (!memory) return "Skipped — no brand memory exists yet; run extract_brand_memory first.";
+
+  const topPosts = posts
+    .filter((p) => p.engagement_snapshots?.length)
+    .map((p) => {
+      const snaps = p.engagement_snapshots!;
+      const latest = snaps[snaps.length - 1] ?? {};
+      const score = (latest.likes ?? 0) + (latest.comments ?? 0) * 2 + (latest.shares ?? 0) * 3;
+      return { caption: p.content_briefs?.caption ?? "", topic: p.content_briefs?.topic ?? "", score };
+    })
+    .filter((p) => p.caption.length > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 20);
+
+  if (topPosts.length < 3) return "Skipped — fewer than 3 posts with captions found.";
+
+  const prompt = [
+    `You are a brand analyst. Analyze the following brand data and recent posts to extract brand personality, content pillars, storytelling style, and strengths/weaknesses.`,
+    ``,
+    `Current brand memory:`,
+    `- Writing style: ${memory.writing_style_notes || "(not set)"}`,
+    `- Tone guidelines: ${memory.tone_guidelines || "(not set)"}`,
+    `- Brand descriptors: ${memory.brand_descriptors?.join(", ") || "(none)"}`,
+    `- Top hashtags: ${memory.effective_hashtags?.join(", ") || "(none)"}`,
+    `- Best posting days: ${memory.best_posting_days?.join(", ") || "(unknown)"}`,
+    `- CTA frequency: ${memory.cta_frequency || "unknown"}`,
+    `- Avg caption length: ${memory.caption_length_avg ?? "unknown"} chars`,
+    `- Media usage ratio: ${memory.media_usage_ratio ?? "unknown"}`,
+    ``,
+    `Top posts by engagement (caption, engagement score):`,
+    ...topPosts.map((p, i) => `${i + 1}. "${p.caption.slice(0, 300)}" (score: ${p.score}, topic: ${p.topic || "general"})`),
+    ``,
+    `Return a JSON object with exactly these keys:`,
+    `{`,
+    `  "brand_personality": "2-3 sentence description",`,
+    `  "content_pillars": ["pillar1", "pillar2", ...],`,
+    `  "storytelling_style": "1-2 sentence description",`,
+    `  "strengths": ["strength1", "strength2", ...],`,
+    `  "weaknesses": ["weakness1", "weakness2", ...]`,
+    `}`,
+  ].join("\n");
+
+  const baseUrl = LLM_BASE_URL || defaultLlmBaseUrl(LLM_PROVIDER);
+  if (!baseUrl) return "Skipped — no LLM base URL configured.";
+
+  const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const response = await fetchWithTimeout(url, {
+    method: "POST",
+    timeout: 45_000,
+    headers: { "content-type": "application/json", authorization: `Bearer ${AI_API_KEY}` },
+    body: JSON.stringify({
+      model: LLM_MODEL,
+      messages: [
+        { role: "system", content: "You are a brand analyst. Return ONLY valid JSON. No markdown, no code fences." },
+        { role: "user", content: prompt },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7,
+    }),
+  });
+
+  const body = await response.text();
+  const usage = extractLlmUsage(body);
+  await logUsage(page.id, null, LLM_PROVIDER, LLM_MODEL, usage);
+
+  if (!response.ok) {
+    await recordProviderFailure("llm", `Brand LLM ${response.status}: ${body.slice(0, 240)}`);
+    if (!FALLBACK_LLM_MODEL) return `Brand LLM call failed (${response.status}) — no fallback configured.`;
+    log("warn", "Brand LLM primary failed, trying fallback", { model: FALLBACK_LLM_MODEL });
+    const response2 = await fetchWithTimeout(url, {
+      method: "POST",
+      timeout: 45_000,
+      headers: { "content-type": "application/json", authorization: `Bearer ${AI_API_KEY}` },
+      body: JSON.stringify({
+        model: FALLBACK_LLM_MODEL,
+        messages: [
+          { role: "system", content: "You are a brand analyst. Return ONLY valid JSON. No markdown, no code fences." },
+          { role: "user", content: prompt },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+      }),
+    });
+    const body2 = await response2.text();
+    const usage2 = extractLlmUsage(body2);
+    await logUsage(page.id, null, LLM_PROVIDER, FALLBACK_LLM_MODEL, usage2);
+    if (!response2.ok) return `Brand LLM fallback also failed (${response2.status}).`;
+    return await parseAndStoreBrandLlm(page.id, body2);
+  }
+
+  return await parseAndStoreBrandLlm(page.id, body);
+}
+
+async function parseAndStoreBrandLlm(pageId: string, body: string): Promise<string> {
+  let parsed: { data?: { choices?: { message?: { content?: string } }[] } };
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return "Brand LLM returned non-JSON response.";
+  }
+  const content = parsed?.choices?.[0]?.message?.content ?? "{}";
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(content);
+  } catch {
+    return "Brand LLM returned invalid JSON in message content.";
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("brand_memory").upsert({
+    page_id: pageId,
+    brand_personality: typeof data.brand_personality === "string" ? data.brand_personality : "",
+    content_pillars: Array.isArray(data.content_pillars) ? data.content_pillars : [],
+    storytelling_style: typeof data.storytelling_style === "string" ? data.storytelling_style : "",
+    strengths_weaknesses: { strengths: data.strengths ?? [], weaknesses: data.weaknesses ?? [] },
+    llm_analyzed_at: now,
+    updated_at: now,
+  }, { onConflict: "page_id" });
+
+  if (error) {
+    log("warn", "Failed to store LLM brand analysis", { page_id: pageId, error: messageOf(error) });
+    return "Brand LLM analysis computed but failed to save.";
+  }
+  return `Brand LLM analysis saved (personality: ${(data.brand_personality as string)?.slice(0, 60) || "N/A"}).`;
+}
+
 type PostWithEngagement = {
   published_at: string | null;
   engagement_snapshots: Array<{ likes?: number; comments?: number; shares?: number; captured_at?: string }> | null;
@@ -1123,12 +1262,17 @@ type BrandMemoryRow = {
   cta_frequency: string;
   media_usage_ratio: number | null;
   hashtag_count_avg: number | null;
+  brand_personality?: string;
+  content_pillars?: string[];
+  storytelling_style?: string;
+  strengths_weaknesses?: Json;
+  llm_analyzed_at?: string | null;
 };
 
 async function loadBrandMemory(pageId: string): Promise<BrandMemoryRow | null> {
   const { data, error } = await supabase
     .from("brand_memory")
-    .select("brand_descriptors, audience_profile, writing_style_notes, effective_hashtags, top_content_snippets, tone_guidelines, avoided_topics")
+    .select("brand_descriptors, audience_profile, writing_style_notes, effective_hashtags, top_content_snippets, tone_guidelines, avoided_topics, brand_personality, content_pillars, storytelling_style, strengths_weaknesses, llm_analyzed_at")
     .eq("page_id", pageId)
     .maybeSingle();
   if (error) {
