@@ -378,7 +378,7 @@ async function generateBriefIdeas(page: Page, slots: Date[]) {
     slots: slots.map((slot) => slot.toISOString()),
   };
 
-  const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+  let response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
     timeout: 30_000,
     headers: { "content-type": "application/json", authorization: `Bearer ${AI_API_KEY}` },
@@ -396,7 +396,25 @@ async function generateBriefIdeas(page: Page, slots: Date[]) {
       temperature: 0.75,
     }),
   });
-  const body = await response.text();
+  let body = await response.text();
+  if (!response.ok && FALLBACK_LLM_MODEL) {
+    log("warn", "Brief LLM primary model failed, trying fallback", { model: LLM_MODEL });
+    response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      timeout: 30_000,
+      headers: { "content-type": "application/json", authorization: `Bearer ${AI_API_KEY}` },
+      body: JSON.stringify({
+        model: FALLBACK_LLM_MODEL,
+        messages: [
+          { role: "system", content: "You write Facebook content plans. Return JSON only." },
+          { role: "user", content: JSON.stringify(prompt) },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.75,
+      }),
+    });
+    body = await response.text();
+  }
   const usage = extractLlmUsage(body);
   await logUsage(page.id, null, LLM_PROVIDER, LLM_MODEL, usage);
   if (!response.ok) {
