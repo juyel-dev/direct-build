@@ -81,6 +81,7 @@ export const ContentBriefSchema = z.object({
   image_url: z.string().nullable().default(null),
   storage_image_path: z.string().nullable().default(null),
   image_stored_at: z.string().datetime().nullable().default(null),
+  storage_image_pinned: z.boolean().default(false),
   hook: z.string().default(""),
   cta: z.string().default(""),
   prompt_version: z.string().default("unknown"),

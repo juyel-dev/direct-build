@@ -735,4 +735,21 @@ where id = 1;
 insert into public._migrations (id, name) values (13, 'content_briefs_image_storage') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 14,
+    name: "content_briefs_image_pin",
+    sql: `
+-- Add pin flag for image retention exceptions
+alter table public.content_briefs
+  add column if not exists storage_image_pinned boolean not null default false;
+
+update public.app_settings
+set schema_version = 14,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('content_briefs_image_pin', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (14, 'content_briefs_image_pin') on conflict (id) do nothing;
+`,
+  },
 ];

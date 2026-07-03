@@ -24,6 +24,7 @@ type Brief = {
   image_url: string | null;
   storage_image_path: string | null;
   image_stored_at: string | null;
+  storage_image_pinned: boolean;
   status: string;
 };
 
@@ -221,6 +222,7 @@ async function seedRecurringJobs(pages: Page[]) {
     await enqueue(page.id, "compute_strategy", floorBucket(now, 6 * 60), { window_days: 30 }, 0);
     await enqueue(page.id, "extract_brand_memory", floorBucket(now, 24 * 60), {}, 0);
     await enqueue(page.id, "analyze_brand_llm", floorBucket(now, 24 * 60), {}, 0);
+    await enqueue(page.id, "cleanup_images", floorBucket(now, 24 * 60), {}, 0);
     await enqueue(page.id, "generate_strategy", floorBucket(now, 6 * 60), {}, 0);
   }
 }
@@ -283,6 +285,8 @@ async function processJob(job: Job, pages: Page[]) {
       detail = await extractBrandMemory(page);
     else if (job.kind === "analyze_brand_llm")
       detail = await analyzeBrandLlm(page);
+    else if (job.kind === "cleanup_images")
+      detail = await cleanupImages(page);
     else if (job.kind === "generate_strategy")
       detail = await generateStrategy(page);
     else detail = `Unknown job kind "${job.kind}" skipped.`;
@@ -662,6 +666,40 @@ async function publishBrief(page: Page, brief: Brief, token: string) {
     .from("content_briefs")
     .update({ status: "published", updated_at: new Date().toISOString() })
     .eq("id", brief.id);
+}
+
+async function cleanupImages(page: Page) {
+  const cutoff = new Date(Date.now() - 90 * 86400_000).toISOString();
+  const { data: expired, error } = await supabase
+    .from("content_briefs")
+    .select("id, storage_image_path")
+    .eq("page_id", page.id)
+    .eq("storage_image_pinned", false)
+    .not("storage_image_path", "is", null)
+    .not("image_stored_at", "is", null)
+    .lt("image_stored_at", cutoff);
+  if (error) {
+    log("warn", "Failed to query expired images", { page_id: page.id, error: messageOf(error) });
+    return "Error querying expired images.";
+  }
+  if (!expired || expired.length === 0) return "No expired images to clean up.";
+  let deleted = 0;
+  const paths = expired.map((b: { storage_image_path: string }) => b.storage_image_path);
+  for (const path of paths) {
+    const { error: removeError } = await supabase.storage
+      .from(IMAGE_STORAGE_BUCKET)
+      .remove([path]);
+    if (removeError) {
+      log("warn", "Failed to remove image from storage", { path, error: messageOf(removeError) });
+    }
+    deleted++;
+  }
+  const ids = expired.map((b: { id: string }) => b.id);
+  await supabase
+    .from("content_briefs")
+    .update({ storage_image_path: null, image_stored_at: null, updated_at: new Date().toISOString() })
+    .in("id", ids);
+  return `Cleaned up ${deleted} expired images.`;
 }
 
 async function captureEngagement(page: Page, windowDays: number) {

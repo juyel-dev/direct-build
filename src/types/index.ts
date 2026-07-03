@@ -29,6 +29,7 @@ export type Brief = {
   image_url: string | null;
   storage_image_path: string | null;
   image_stored_at: string | null;
+  storage_image_pinned: boolean;
   hook: string | null;
   cta: string | null;
   predicted_engagement_score: number | null;
