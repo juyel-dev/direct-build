@@ -16,15 +16,38 @@ import {
 
 const COLORS = ["oklch(0.78 0.16 195)", "oklch(0.70 0.18 320)", "oklch(0.78 0.16 155)", "oklch(0.82 0.17 80)"];
 
+function WoWStat({ label, value }: { label: string; value: number }) {
+  const up = value > 0;
+  const down = value < 0;
+  return (
+    <div className="glass rounded-xl px-3 py-2 flex items-center gap-2 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`font-medium ${up ? "text-success" : down ? "text-destructive" : "text-muted-foreground"}`}>
+        {value > 0 ? "+" : ""}{value}%
+      </span>
+      {up && <span className="text-success">▲</span>}
+      {down && <span className="text-destructive">▼</span>}
+    </div>
+  );
+}
+
 export default function AnalyticsChartsInner(props: {
   series: { date: string; likes: number; comments: number; shares: number }[];
   costByProvider: { name: string; value: number }[];
   topPosts: { topic: string; url: string | null; score: number; caption: string | null; likes: number; comments: number; shares: number; published_at: string | null }[];
   totalCost: number;
+  wow: { likes: number; comments: number; shares: number; cost: number };
 }) {
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <GlassPanel title="Engagement over time" className="lg:col-span-2">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">vs previous period</span>
+          <WoWStat label="Likes" value={props.wow.likes} />
+          <WoWStat label="Comments" value={props.wow.comments} />
+          <WoWStat label="Shares" value={props.wow.shares} />
+          <WoWStat label="Cost" value={props.wow.cost} />
+        </div>
         <div className="h-72">
           {props.series.length === 0 ? (
             <Empty>No engagement data yet. Snapshots appear once your posts are published and the engagement-sync job runs.</Empty>

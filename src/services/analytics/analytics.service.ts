@@ -10,6 +10,7 @@ import type { EngagementSnapshot, AiUsage } from "../../types";
 export type EngagementSeries = { date: string; likes: number; comments: number; shares: number };
 export type TopPost = { topic: string; url: string | null; score: number; caption: string | null; likes: number; comments: number; shares: number; published_at: string | null };
 export type CostByProvider = { name: string; value: number };
+export type WoWComparison = { likes: number; comments: number; shares: number; cost: number };
 
 export class AnalyticsService extends BaseService {
   private engagements: EngagementRepository;
@@ -26,21 +27,55 @@ export class AnalyticsService extends BaseService {
   }
 
   async getAnalytics(days: number = 30) {
-    const since = new Date(Date.now() - days * 86400_000).toISOString();
+    const now = Date.now();
+    const periodMs = days * 86400_000;
+    const since = new Date(now - periodMs).toISOString();
+    const prevSince = new Date(now - 2 * periodMs).toISOString();
 
-    const [snaps, posts, briefTopics, usage] = await Promise.all([
-      this.engagements.findByDateRange(since),
+    const [[rawSnaps, rawPrevSnaps], posts, briefTopics, usage, prevUsage] = await Promise.all([
+      (async () => {
+        const [cur, prev] = await Promise.all([
+          this.engagements.findByDateRange(since),
+          this.engagements.findByDateRange(prevSince, undefined, since),
+        ]);
+        return [cur, prev] as const;
+      })(),
       this.posts.findPublishedWithMetrics(since),
       this.briefs.findBriefTopics(),
       this.usage.findByDateRange(since),
+      this.usage.findByDateRange(prevSince, since),
     ]);
+    const snaps = (Array.isArray(rawSnaps) ? rawSnaps : []) as EngagementSnapshot[];
+    const prevSnaps = (Array.isArray(rawPrevSnaps) ? rawPrevSnaps : []) as EngagementSnapshot[];
 
-    const snapData = (Array.isArray(snaps) ? snaps : []) as EngagementSnapshot[];
-    const series = this.buildEngagementSeries(snapData);
-    const topPosts = this.buildTopPosts(snapData, posts, briefTopics);
+    const series = this.buildEngagementSeries(snaps);
+    const topPosts = this.buildTopPosts(snaps, posts, briefTopics);
     const { costByProvider, totalCost } = this.buildCostData(usage);
+    const prevCost = this.buildCostData(prevUsage).totalCost;
+    const wow = this.buildWoWComparison(snaps, prevSnaps, totalCost, prevCost);
 
-    return { series, topPosts, costByProvider, totalCost };
+    return { series, topPosts, costByProvider, totalCost, wow };
+  }
+
+  private buildWoWComparison(
+    curSnaps: EngagementSnapshot[],
+    prevSnaps: EngagementSnapshot[],
+    curCost: number,
+    prevCost: number,
+  ): WoWComparison {
+    const sum = (snaps: EngagementSnapshot[]) => snaps.reduce(
+      (a, s) => ({ likes: a.likes + s.likes, comments: a.comments + s.comments, shares: a.shares + s.shares }),
+      { likes: 0, comments: 0, shares: 0 },
+    );
+    const cur = sum(curSnaps);
+    const prev = sum(prevSnaps);
+    const delta = (cur: number, prev: number) => prev === 0 ? (cur > 0 ? 100 : 0) : Math.round(((cur - prev) / prev) * 100);
+    return {
+      likes: delta(cur.likes, prev.likes),
+      comments: delta(cur.comments, prev.comments),
+      shares: delta(cur.shares, prev.shares),
+      cost: delta(curCost, prevCost),
+    };
   }
 
   private buildEngagementSeries(snaps: EngagementSnapshot[]): EngagementSeries[] {

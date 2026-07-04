@@ -192,7 +192,7 @@ export function useAnalyticsData(days: number = 30) {
     queryKey: ["analytics", days],
     queryFn: async () => {
       const sb = await createUserClient();
-      if (!sb) return { series: [], topPosts: [], costByProvider: [], totalCost: 0 };
+      if (!sb) return { series: [], topPosts: [], costByProvider: [], totalCost: 0, wow: { likes: 0, comments: 0, shares: 0, cost: 0 } };
       const svc = new AnalyticsService(sb);
       return svc.getAnalytics(days);
     },

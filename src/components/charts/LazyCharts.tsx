@@ -7,6 +7,7 @@ export function AnalyticsCharts(props: {
   costByProvider: { name: string; value: number }[];
   topPosts: { topic: string; url: string | null; score: number; caption: string | null; likes: number; comments: number; shares: number; published_at: string | null }[];
   totalCost: number;
+  wow: { likes: number; comments: number; shares: number; cost: number };
 }) {
   return (
     <Suspense fallback={<AnalyticsChartsSkeleton />}>

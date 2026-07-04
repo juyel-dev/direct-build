@@ -28,6 +28,7 @@ function Analytics() {
   const topPosts = data?.topPosts ?? [];
   const costByProvider = data?.costByProvider ?? [];
   const totalCost = data?.totalCost ?? 0;
+  const wow = data?.wow ?? { likes: 0, comments: 0, shares: 0, cost: 0 };
 
   if (inst.schemaVersion === 0 || !unlocked) {
     return (
@@ -70,6 +71,7 @@ function Analytics() {
           costByProvider={costByProvider}
           topPosts={topPosts}
           totalCost={totalCost}
+          wow={wow}
         />
       )}
     </AppShell>

@@ -12,11 +12,17 @@ export class EngagementRepository extends BaseRepository {
     return (data ?? []) as unknown as EngagementSnapshot[];
   }
 
-  async findByDateRange(since: string, options?: QueryOptions): Promise<EngagementSnapshot[] | PaginatedResult<EngagementSnapshot>> {
-    const buildQuery = () => this.client
-      .from("engagement_snapshots")
-      .select("*")
-      .gte("captured_at", since);
+  async findByDateRange(since: string, options?: QueryOptions, until?: string): Promise<EngagementSnapshot[] | PaginatedResult<EngagementSnapshot>> {
+    const buildQuery = () => {
+      let q = this.client
+        .from("engagement_snapshots")
+        .select("*")
+        .gte("captured_at", since);
+      if (until) {
+        q = q.lt("captured_at", until);
+      }
+      return q;
+    };
 
     if (options) {
       return this.withPagination<EngagementSnapshot>(buildQuery, options);
