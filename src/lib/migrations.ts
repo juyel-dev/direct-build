@@ -783,4 +783,91 @@ where id = 1;
 insert into public._migrations (id, name) values (15, 'analytics_daily_aggregation') on conflict (id) do nothing;
 `,
   },
+  {
+    id: 16,
+    name: "configurable_cron_interval",
+    sql: `
+-- RPC to update the worker cron interval (called from Settings UI)
+-- Uses SECURITY DEFINER so the anon-key client can reschedule pg_cron
+create or replace function public.update_worker_cron_interval(p_interval_minutes int default 1)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_jobname text;
+  v_cron_expr text;
+  v_url text;
+  v_headers jsonb;
+  v_body jsonb;
+begin
+  if p_interval_minutes < 1 or p_interval_minutes > 15 then
+    raise exception 'Interval must be between 1 and 15 minutes';
+  end if;
+
+  -- Capture current function URL from the old cron job
+  select cron_url, cron_headers, cron_body into v_url, v_headers, v_body
+  from (
+    select
+      (regexp_matches(schedule, $$url := '([^']+)'$$))[1] as cron_url,
+      null::jsonb as cron_headers,
+      null::jsonb as cron_body
+    from cron.job
+    where jobname like 'aurora-worker-every-%'
+    limit 1
+  ) sub;
+
+  -- Fallback if no existing job found
+  if v_url is null then
+    -- Try to reconstruct from the edge function
+    v_url := current_setting('app.settings.edge_function_url', true);
+    if v_url is null then
+      return 'No existing cron job found and no edge function URL configured. Re-run Setup.';
+    end if;
+  end if;
+
+  -- Unschedule all existing aurora-worker cron jobs
+  for v_jobname in
+    select jobname from cron.job where jobname like 'aurora-worker-every-%'
+  loop
+    perform cron.unschedule(v_jobname);
+  end loop;
+
+  -- Schedule with new interval
+  v_jobname := 'aurora-worker-every-' || p_interval_minutes || 'min';
+  v_cron_expr := '*/' || p_interval_minutes || ' * * * *';
+
+  perform cron.schedule(
+    v_jobname,
+    v_cron_expr,
+    format(
+      $cron$
+        select net.http_post(
+          url := %L,
+          headers := '{"Content-Type": "application/json"}'::jsonb,
+          body := '{"trigger": "pg_cron"}'::jsonb,
+          timeout_milliseconds := 30000
+        );
+      $cron$,
+      v_url
+    )
+  );
+
+  return 'Cron rescheduled to ' || v_cron_expr || ' as ' || v_jobname;
+end;
+$$;
+
+-- Grant execution to anon/authenticated roles
+grant execute on function public.update_worker_cron_interval(int) to anon, authenticated;
+
+update public.app_settings
+set schema_version = 16,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('configurable_cron_interval', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (16, 'configurable_cron_interval') on conflict (id) do nothing;
+`,
+  },
 ];

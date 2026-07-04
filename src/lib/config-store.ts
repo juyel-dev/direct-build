@@ -67,6 +67,7 @@ export const BrandSchema = z.object({
   ]),
   postingMode: z.enum(["manual", "hybrid", "full_auto"]).default("manual"),
   maxPostsPerDay: z.number().min(1).max(10).default(2),
+  workerIntervalMinutes: z.number().min(1).max(15).default(1),
 });
 export type Brand = z.infer<typeof BrandSchema>;
 

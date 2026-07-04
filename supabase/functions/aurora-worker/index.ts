@@ -236,8 +236,16 @@ Deno.serve(async (request) => {
   try {
     const result = await runWithTimeout(async () => {
       const pages = await loadActivePages();
+      if (pages.length === 0) {
+        log("info", "Idle — no active pages");
+        return [];
+      }
       await seedRecurringJobs(pages);
       const jobs = await claimJobs();
+      if (jobs.length === 0) {
+        log("info", "Idle — no pending jobs");
+        return [];
+      }
       const results = [];
       for (const job of jobs) {
         results.push(await processJob(job, pages));

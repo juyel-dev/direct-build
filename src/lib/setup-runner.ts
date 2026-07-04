@@ -172,15 +172,17 @@ export async function runSetup(
 
     await stepRunner({ key: "cron", label: "Schedule automation cron" }, async () => {
       const functionUrl = `${secrets.supabaseUrl.replace(/\/+$/, "")}/functions/v1/${AURORA_WORKER_FUNCTION.slug}`;
+      const intervalMin = brand.workerIntervalMinutes || 1;
       await runSql(
         secrets.supabasePAT,
         ref,
-        buildCronSql(functionUrl, secrets.supabaseAnonKey, automationSecret),
+        buildCronSql(functionUrl, secrets.supabaseAnonKey, automationSecret, intervalMin),
       );
+      const jobName = `aurora-worker-every-${intervalMin}min`;
       const verifyResult = await runSql(
         secrets.supabasePAT,
         ref,
-        `SELECT jobname, schedule FROM cron.job WHERE jobname = 'aurora-worker-every-minute'`,
+        `SELECT jobname, schedule FROM cron.job WHERE jobname = '${jobName}'`,
       );
       const rows = Array.isArray(verifyResult) ? verifyResult : [];
       if (rows.length === 0) {
@@ -203,7 +205,12 @@ export async function runSetup(
   }
 }
 
-function buildCronSql(functionUrl: string, anonKey: string, automationSecret: string) {
+function buildCronExpression(intervalMinutes: number): string {
+  if (intervalMinutes < 1 || intervalMinutes > 15) intervalMinutes = 1;
+  return `*/${intervalMinutes} * * * *`;
+}
+
+function buildCronSql(functionUrl: string, anonKey: string, automationSecret: string, intervalMinutes = 1) {
   const headers = JSON.stringify({
     "Content-Type": "application/json",
     Authorization: `Bearer ${anonKey}`,
@@ -211,9 +218,11 @@ function buildCronSql(functionUrl: string, anonKey: string, automationSecret: st
     "x-automation-secret": automationSecret,
   });
   const body = JSON.stringify({ trigger: "pg_cron" });
+  const cronExpr = buildCronExpression(intervalMinutes);
+  const jobName = `aurora-worker-every-${intervalMinutes}min`;
   return `select cron.schedule(
-  'aurora-worker-every-minute',
-  '* * * * *',
+  '${jobName}',
+  '${cronExpr}',
   $cron$
     select net.http_post(
       url := '${functionUrl.replace(/'/g, "'\\''")}',

@@ -1,18 +1,33 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { GlassPanel } from "@/components/glass/GlassCard";
 import { GlassInput, GlassLabel, GlassTextarea } from "@/components/glass/GlassInput";
 import { GlassButton } from "@/components/glass/GlassButton";
 import { loadBrand, saveBrand, type Brand } from "@/lib/config-store";
+import { createUserClient } from "@/services/supabase-factory";
+import { toast } from "sonner";
 import { CheckCircleIcon, PlusIcon, XMarkIcon } from "@heroicons/react/24/outline";
 
 export function BrandTab() {
   const [brand, setBrand] = useState<Brand>(loadBrand());
   const [topicDraft, setTopicDraft] = useState("");
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const prevInterval = useRef(brand.workerIntervalMinutes);
 
-  function handleSave() {
+  async function handleSave() {
     saveBrand(brand);
     setSavedAt(Date.now());
+    if (brand.workerIntervalMinutes !== prevInterval.current) {
+      prevInterval.current = brand.workerIntervalMinutes;
+      try {
+        const sb = await createUserClient();
+        if (sb) {
+          await sb.rpc("update_worker_cron_interval", { p_interval_minutes: brand.workerIntervalMinutes });
+          toast.success(`Worker rescheduled to every ${brand.workerIntervalMinutes} min`);
+        }
+      } catch {
+        toast.info("Re-run Setup to apply the new interval.");
+      }
+    }
   }
 
   function addTopic() {
@@ -140,6 +155,23 @@ export function BrandTab() {
               value={brand.maxPostsPerDay}
               onChange={(e) => setBrand((b) => ({ ...b, maxPostsPerDay: Math.max(1, Math.min(10, Number(e.target.value) || 1)) }))}
             />
+          </div>
+          <div>
+            <GlassLabel>Worker interval</GlassLabel>
+            <select
+              value={brand.workerIntervalMinutes}
+              onChange={(e) => {
+                const mins = Number(e.target.value);
+                setBrand((b) => ({ ...b, workerIntervalMinutes: mins }));
+              }}
+              className="glass-input w-full h-11 rounded-xl px-3 text-sm focus:outline-none focus:glass-input-focus"
+            >
+              <option value={1} className="bg-background">Every 1 minute</option>
+              <option value={5} className="bg-background">Every 5 minutes</option>
+              <option value={10} className="bg-background">Every 10 minutes</option>
+              <option value={15} className="bg-background">Every 15 minutes</option>
+            </select>
+            <p className="text-[10px] text-muted-foreground mt-1">Requires re-setup to take effect. Higher intervals reduce AI costs.</p>
           </div>
         </div>
       </GlassPanel>
