@@ -539,11 +539,82 @@ async function maybeGenerateImageUrl(prompt: string): Promise<string | null> {
   return null;
 }
 
+async function validateFacebookToken(token: string): Promise<{ valid: boolean; error?: string }> {
+  const url = `https://graph.facebook.com/${GRAPH_VERSION}/me?fields=id`;
+  const response = await fetchWithTimeout(url, {
+    timeout: 10_000,
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.error) {
+    const code = body.error?.code ?? body.error?.error_code;
+    const msg = body.error?.message ?? `HTTP ${response.status}`;
+    if (code === 190 || code === 102 || response.status === 401) {
+      return { valid: false, error: `Token expired or invalid: ${msg.slice(0, 120)}` };
+    }
+    return { valid: false, error: msg.slice(0, 120) };
+  }
+  return { valid: true };
+}
+
+async function validateImageForPublish(brief: Brief): Promise<{ valid: boolean; error?: string }> {
+  if (!brief.image_url) return { valid: true };
+  try {
+    const response = await fetchWithTimeout(brief.image_url, { method: "HEAD", timeout: 10_000 });
+    const contentType = response.headers.get("content-type") ?? "";
+    const contentLength = Number(response.headers.get("content-length") ?? 0);
+    if (!contentType.startsWith("image/")) {
+      return { valid: false, error: `Image has invalid content-type: ${contentType}` };
+    }
+    if (contentLength > 8_000_000) {
+      return { valid: false, error: `Image exceeds 8MB (${Math.round(contentLength / 1_000_000)}MB)` };
+    }
+    return { valid: true };
+  } catch (e) {
+    return { valid: false, error: `Image unreachable: ${messageOf(e)}` };
+  }
+}
+
+const SPAMMY_PATTERNS = [
+  /\b(buy\s+now|click\s+here|free\s+money|act\s+now|limited\s+time|don't\s+miss\s+out)\b/i,
+  /\b(follow\s+for\s+follow|like4like|comment4comment)\b/i,
+  /\$\d{3,}/,
+];
+
+async function validateCaptionForPublish(brief: Brief): Promise<{ valid: boolean; error?: string }> {
+  const caption = buildCaption(brief);
+  const isPhoto = !!brief.image_url;
+  const maxLen = isPhoto ? 2200 : 63206;
+  if (caption.length > maxLen) {
+    return { valid: false, error: `Caption too long (${caption.length}/${maxLen}) for ${isPhoto ? "photo" : "feed"} post` };
+  }
+  if (!caption.trim() && !isPhoto) {
+    return { valid: false, error: "Caption is empty and no image provided" };
+  }
+  for (const pattern of SPAMMY_PATTERNS) {
+    if (pattern.test(caption)) {
+      return { valid: false, error: `Caption flagged as spammy: "${caption.match(pattern)?.[0]}"` };
+    }
+  }
+  return { valid: true };
+}
+
 async function publishDuePosts(page: Page) {
   if (!page.fb_page_id) return "Skipped — Facebook page id missing.";
   if (!await isProviderAvailable("facebook")) return "Skipped — Facebook API in cooldown.";
-
   if (!PAGE_TOKEN) return "Skipped — Facebook page token missing.";
+
+  const tokenCheck = await validateFacebookToken(PAGE_TOKEN);
+  if (!tokenCheck.valid) {
+    log("error", "facebook_token_invalid", { page_id: page.id, error: tokenCheck.error });
+    await supabase.from("system_events").insert({
+      severity: "error",
+      category: "facebook_token_expired",
+      message: tokenCheck.error ?? "Facebook token invalid before publish.",
+      metadata: { page_id: page.id, page_name: page.fb_page_name },
+    });
+    return `Skipped — ${tokenCheck.error}`;
+  }
 
   const { count: publishedToday, error: countError } = await supabase
     .from("posts")
@@ -569,13 +640,26 @@ async function publishDuePosts(page: Page) {
 
   const briefs = (data ?? []) as Brief[];
   let published = 0;
+  let skipped = 0;
   for (const brief of briefs) {
+    const imageCheck = await validateImageForPublish(brief);
+    if (!imageCheck.valid) {
+      log("warn", "pre-publish image validation failed", { brief_id: brief.id, error: imageCheck.error });
+      skipped++;
+      continue;
+    }
+    const captionCheck = await validateCaptionForPublish(brief);
+    if (!captionCheck.valid) {
+      log("warn", "pre-publish caption validation failed", { brief_id: brief.id, error: captionCheck.error });
+      skipped++;
+      continue;
+    }
     const claimed = await claimBriefForPublish(brief.id);
     if (!claimed) continue;
     await publishBrief(page, brief, PAGE_TOKEN);
     published += 1;
   }
-  return `Published ${published} due posts.`;
+  return `Published ${published} due posts${skipped > 0 ? ` (${skipped} skipped by validation)` : ""}.`;
 }
 
 async function claimBriefForPublish(briefId: string) {
