@@ -43,6 +43,106 @@ type Job = {                                      // src/types/index.ts:84
 
 const GRAPH_VERSION = "v21.0";
 const WORKER_NAME = "aurora-worker";
+
+// ─── Platform Adapter Interface ─────────────────────────────
+// Extracted so the Growth Intelligence engine stays independent
+// from Facebook-specific publishing. New platforms implement
+// the same interface.
+interface PlatformAdapter {
+  validateToken(token: string): Promise<{ valid: boolean; error?: string }>;
+  publishPost(
+    page: Page,
+    brief: Brief,
+    token: string,
+    caption: string,
+  ): Promise<{ fbPostId: string | null; permalink: string | null }>;
+  fetchMetrics(
+    fbPostId: string,
+    token: string,
+  ): Promise<{ likes: number; comments: number; shares: number; reach: number; impressions: number }>;
+}
+
+class FacebookAdapter implements PlatformAdapter {
+  private baseUrl = `https://graph.facebook.com/${GRAPH_VERSION}`;
+
+  async validateToken(token: string): Promise<{ valid: boolean; error?: string }> {
+    const url = `${this.baseUrl}/me?fields=id`;
+    const response = await fetchWithTimeout(url, {
+      timeout: 10_000,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.error) {
+      const code = body.error?.code ?? body.error?.error_code;
+      const msg = body.error?.message ?? `HTTP ${response.status}`;
+      if (code === 190 || code === 102 || response.status === 401) {
+        return { valid: false, error: `Token expired or invalid: ${msg.slice(0, 120)}` };
+      }
+      return { valid: false, error: msg.slice(0, 120) };
+    }
+    return { valid: true };
+  }
+
+  async publishPost(
+    page: Page,
+    brief: Brief,
+    token: string,
+    caption: string,
+  ): Promise<{ fbPostId: string | null; permalink: string | null }> {
+    const endpoint = brief.image_url
+      ? `${this.baseUrl}/${encodeURIComponent(page.fb_page_id ?? "")}/photos`
+      : `${this.baseUrl}/${encodeURIComponent(page.fb_page_id ?? "")}/feed`;
+    const body = new URLSearchParams();
+    body.set("access_token", token);
+    if (brief.image_url) {
+      body.set("url", brief.image_url);
+      body.set("caption", caption);
+      body.set("published", "true");
+    } else {
+      body.set("message", caption);
+    }
+    const response = await fetchWithTimeout(endpoint, { method: "POST", body, timeout: 15_000 });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.error) {
+      const errorCode = result.error?.code ?? result.error?.error_code;
+      const errorText = result.error?.message ?? JSON.stringify(result).slice(0, 200);
+      if (errorCode === 190) {
+        throw new FacebookTokenError(errorText);
+      }
+      throw new PublishError(errorText);
+    }
+    const fbPostId = result.post_id ?? result.id;
+    const permalink = fbPostId ? `https://www.facebook.com/${fbPostId}` : null;
+    return { fbPostId, permalink };
+  }
+
+  async fetchMetrics(
+    fbPostId: string,
+    token: string,
+  ): Promise<{ likes: number; comments: number; shares: number; reach: number; impressions: number }> {
+    const fields = "likes.summary(true),comments.summary(true),shares,reach,impressions";
+    const url = `${this.baseUrl}/${encodeURIComponent(fbPostId)}?fields=${encodeURIComponent(fields)}`;
+    const response = await fetchWithTimeout(url, {
+      timeout: 10_000,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.error) {
+      log("warn", "facebook_metrics_fetch_failed", { fbPostId, error: body.error?.message ?? `HTTP ${response.status}` });
+      return { likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0 };
+    }
+    return {
+      likes: body.likes?.summary?.total_count ?? body.likes?.data?.length ?? 0,
+      comments: body.comments?.summary?.total_count ?? body.comments?.data?.length ?? 0,
+      shares: body.shares?.count ?? 0,
+      reach: body.reach ?? 0,
+      impressions: body.impressions ?? 0,
+    };
+  }
+}
+
+class FacebookTokenError extends Error { constructor(msg: string) { super(msg); this.name = "FacebookTokenError"; } }
+class PublishError extends Error { constructor(msg: string) { super(msg); this.name = "PublishError"; } }
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const CIRCUIT_COOLDOWN_MS = 300_000;
 const CIRCUIT_THRESHOLD = 3;
@@ -543,23 +643,7 @@ async function maybeGenerateImageUrl(prompt: string): Promise<string | null> {
   return null;
 }
 
-async function validateFacebookToken(token: string): Promise<{ valid: boolean; error?: string }> {
-  const url = `https://graph.facebook.com/${GRAPH_VERSION}/me?fields=id`;
-  const response = await fetchWithTimeout(url, {
-    timeout: 10_000,
-    headers: { authorization: `Bearer ${token}` },
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || body.error) {
-    const code = body.error?.code ?? body.error?.error_code;
-    const msg = body.error?.message ?? `HTTP ${response.status}`;
-    if (code === 190 || code === 102 || response.status === 401) {
-      return { valid: false, error: `Token expired or invalid: ${msg.slice(0, 120)}` };
-    }
-    return { valid: false, error: msg.slice(0, 120) };
-  }
-  return { valid: true };
-}
+const platform = new FacebookAdapter();
 
 async function validateImageForPublish(brief: Brief): Promise<{ valid: boolean; error?: string }> {
   if (!brief.image_url) return { valid: true };
@@ -608,7 +692,7 @@ async function publishDuePosts(page: Page) {
   if (!await isProviderAvailable("facebook")) return "Skipped — Facebook API in cooldown.";
   if (!PAGE_TOKEN) return "Skipped — Facebook page token missing.";
 
-  const tokenCheck = await validateFacebookToken(PAGE_TOKEN);
+  const tokenCheck = await platform.validateToken(PAGE_TOKEN);
   if (!tokenCheck.valid) {
     log("error", "facebook_token_invalid", { page_id: page.id, error: tokenCheck.error });
     await supabase.from("system_events").insert({
@@ -692,27 +776,26 @@ async function publishBrief(page: Page, brief: Brief, token: string) {
   );
   if (postError) throw postError;
 
-  const endpoint = brief.image_url
-    ? `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(page.fb_page_id ?? "")}/photos`
-    : `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(page.fb_page_id ?? "")}/feed`;
-  const body = new URLSearchParams();
-  body.set("access_token", token);
-  if (brief.image_url) {
-    body.set("url", brief.image_url);
-    body.set("caption", caption);
-    body.set("published", "true");
-  } else {
-    body.set("message", caption);
-  }
-
-  const response = await fetchWithTimeout(endpoint, { method: "POST", body, timeout: 15_000 });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || result.error) {
-    const errorCode = result.error?.code ?? result.error?.error_code;
-    const errorText = result.error?.message ?? JSON.stringify(result).slice(0, 200);
-
-    if (errorCode === 190) {
-      log("error", "facebook_token_expired", { message: errorText.slice(0, 200) });
+  try {
+    const { fbPostId, permalink } = await platform.publishPost(page, brief, token, caption);
+    await supabase
+      .from("posts")
+      .update({
+        fb_post_id: fbPostId,
+        fb_permalink_url: permalink,
+        status: "published",
+        published_at: new Date().toISOString(),
+        last_error: null,
+      })
+      .eq("idempotency_key", idempotencyKey);
+    await supabase
+      .from("content_briefs")
+      .update({ status: "published", updated_at: new Date().toISOString() })
+      .eq("id", brief.id);
+  } catch (e) {
+    const message = messageOf(e);
+    if (e instanceof FacebookTokenError) {
+      log("error", "facebook_token_expired", { message: message.slice(0, 200) });
       await supabase.from("system_events").insert({
         severity: "error",
         category: "facebook_token_expired",
@@ -729,35 +812,17 @@ async function publishBrief(page: Page, brief: Brief, token: string) {
         .eq("id", brief.id);
       throw new Error("TOKEN_EXPIRED: Facebook token expired. Update in Settings → Facebook page.");
     }
-
-    await recordProviderFailure("facebook", `Publish ${response.status}: ${errorText}`);
+    await recordProviderFailure("facebook", `Publish: ${message}`);
     await supabase
       .from("posts")
-      .update({ status: "failed", last_error: errorText })
+      .update({ status: "failed", last_error: message })
       .eq("idempotency_key", idempotencyKey);
     await supabase
       .from("content_briefs")
       .update({ status: "failed", updated_at: new Date().toISOString() })
       .eq("id", brief.id);
-    throw new Error(errorText);
+    throw e;
   }
-
-  const fbPostId = result.post_id ?? result.id;
-  const permalink = fbPostId ? `https://www.facebook.com/${fbPostId}` : null;
-  await supabase
-    .from("posts")
-    .update({
-      fb_post_id: fbPostId,
-      fb_permalink_url: permalink,
-      status: "published",
-      published_at: new Date().toISOString(),
-      last_error: null,
-    })
-    .eq("idempotency_key", idempotencyKey);
-  await supabase
-    .from("content_briefs")
-    .update({ status: "published", updated_at: new Date().toISOString() })
-    .eq("id", brief.id);
 }
 
 async function cleanupImages(page: Page) {
