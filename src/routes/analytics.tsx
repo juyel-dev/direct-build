@@ -4,6 +4,7 @@ import { GlassPanel } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
 import { loadInstallStatus, getSessionPassphrase } from "@/lib/config-store";
 import { useAnalyticsData } from "@/hooks/useAuroraQuery";
+import type { GrowthTrend } from "@/services/analytics/analytics.service";
 import { useState } from "react";
 import { AnalyticsCharts } from "@/components/charts/LazyCharts";
 
@@ -29,6 +30,7 @@ function Analytics() {
   const costByProvider = data?.costByProvider ?? [];
   const totalCost = data?.totalCost ?? 0;
   const wow = data?.wow ?? { likes: 0, comments: 0, shares: 0, cost: 0 };
+  const growth = data?.growth ?? { direction: "flat" as GrowthTrend["direction"], pct: 0 };
 
   if (inst.schemaVersion === 0 || !unlocked) {
     return (
@@ -72,6 +74,7 @@ function Analytics() {
           topPosts={topPosts}
           totalCost={totalCost}
           wow={wow}
+          growth={growth}
         />
       )}
     </AppShell>

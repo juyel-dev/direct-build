@@ -8,6 +8,7 @@ export function AnalyticsCharts(props: {
   topPosts: { topic: string; url: string | null; score: number; caption: string | null; likes: number; comments: number; shares: number; published_at: string | null }[];
   totalCost: number;
   wow: { likes: number; comments: number; shares: number; cost: number };
+  growth: { direction: string; pct: number };
 }) {
   return (
     <Suspense fallback={<AnalyticsChartsSkeleton />}>

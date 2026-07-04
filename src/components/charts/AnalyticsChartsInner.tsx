@@ -37,12 +37,17 @@ export default function AnalyticsChartsInner(props: {
   topPosts: { topic: string; url: string | null; score: number; caption: string | null; likes: number; comments: number; shares: number; published_at: string | null }[];
   totalCost: number;
   wow: { likes: number; comments: number; shares: number; cost: number };
+  growth: { direction: string; pct: number };
 }) {
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <GlassPanel title="Engagement over time" className="lg:col-span-2">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">vs previous period</span>
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Trend</span>
+          <span className={`text-xs font-medium ${props.growth.direction === "up" ? "text-success" : props.growth.direction === "down" ? "text-destructive" : "text-muted-foreground"}`}>
+            {props.growth.direction === "up" ? "↑" : props.growth.direction === "down" ? "↓" : "→"} {props.growth.pct > 0 ? "+" : ""}{props.growth.pct}%
+          </span>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground ml-1">WoW</span>
           <WoWStat label="Likes" value={props.wow.likes} />
           <WoWStat label="Comments" value={props.wow.comments} />
           <WoWStat label="Shares" value={props.wow.shares} />

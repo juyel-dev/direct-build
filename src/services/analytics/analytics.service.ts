@@ -11,6 +11,7 @@ export type EngagementSeries = { date: string; likes: number; comments: number; 
 export type TopPost = { topic: string; url: string | null; score: number; caption: string | null; likes: number; comments: number; shares: number; published_at: string | null };
 export type CostByProvider = { name: string; value: number };
 export type WoWComparison = { likes: number; comments: number; shares: number; cost: number };
+export type GrowthTrend = { direction: "up" | "down" | "flat"; pct: number };
 
 export class AnalyticsService extends BaseService {
   private engagements: EngagementRepository;
@@ -53,8 +54,23 @@ export class AnalyticsService extends BaseService {
     const { costByProvider, totalCost } = this.buildCostData(usage);
     const prevCost = this.buildCostData(prevUsage).totalCost;
     const wow = this.buildWoWComparison(snaps, prevSnaps, totalCost, prevCost);
+    const growth = this.buildGrowthTrend(snaps);
 
-    return { series, topPosts, costByProvider, totalCost, wow };
+    return { series, topPosts, costByProvider, totalCost, wow, growth };
+  }
+
+  private buildGrowthTrend(snaps: EngagementSnapshot[]): GrowthTrend {
+    const sorted = [...snaps].sort((a, b) => new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime());
+    const mid = Math.floor(sorted.length / 2);
+    if (mid === 0) return { direction: "flat", pct: 0 };
+    const firstHalf = sorted.slice(0, mid);
+    const secondHalf = sorted.slice(mid);
+    const sum = (arr: EngagementSnapshot[]) => arr.reduce((a, s) => a + s.likes + s.comments + s.shares, 0);
+    const firstTotal = sum(firstHalf);
+    const secondTotal = sum(secondHalf);
+    if (firstTotal === 0) return { direction: secondTotal > 0 ? "up" : "flat", pct: secondTotal > 0 ? 100 : 0 };
+    const pct = Math.round(((secondTotal - firstTotal) / firstTotal) * 100);
+    return { direction: pct > 5 ? "up" : pct < -5 ? "down" : "flat", pct };
   }
 
   private buildWoWComparison(
