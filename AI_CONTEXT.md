@@ -1774,6 +1774,23 @@ A: TypeScript strict mode with `noUnusedLocals` and `noUnusedParameters` enabled
 
 ---
 
+## Synced Algorithms (Worker ↔ Frontend)
+
+The following pure functions exist in **both** the Deno worker (`supabase/functions/aurora-worker/index.ts`)
+and the frontend service layer (`src/services/strategy.service.ts`). They must stay in sync.
+
+| Algorithm | Worker | Frontend | Purpose |
+|-----------|--------|----------|---------|
+| `computeQualityFeedback` | `:1407` | `:75` | Groups posts by topic, computes predicted vs actual engagement delta |
+| `buildStrategyPrompt` / `buildAnalysisPrompt` | `:1437` | `:105` | Constructs the LLM prompt with brand context, memory, quality feedback |
+| `computeDeterministicRecs` | `:1558` | `:269` | Code-computed recommendations (best days, CTAs, media ratio, hashtags) |
+
+**Sync check:** Both copies are tagged with `// Mirrors <counterpart-path>` comments at the
+function definition. When modifying one, update the other. The test suite
+(`{strategy,worker}.test.ts`) validates behavior parity where possible.
+
+---
+
 ## Ratification
 
 This Constitution replaces `AI_CONTEXT.md` (the original AI handover context) as the single source of truth. It merges three documents:

@@ -9,67 +9,84 @@ Aurora is an open-source AI Facebook Autopilot following the BYOB/BYOK model (Br
 ```
 src/
  ├── components/        # Reusable UI components (glassmorphism design system)
- │   ├── ui/           # shadcn/ui primitives
- │   ├── glass/        # Glassmorphism design components
+ │   ├── ui/           # shadcn/ui primitives (Calendar, day-picker)
+ │   ├── glass/        # Glassmorphism design components (GlassCard, GlassPanel, BottomSheet)
  │   ├── layout/       # AppShell, sidebar, navigation
- │   └── facebook/     # Facebook post preview
+ │   ├── facebook/     # Facebook post preview (FacebookPreview)
+ │   └── charts/       # Analytics charts (LazyCharts, AnalyticsChartsInner)
  │
  ├── features/          # Feature-specific UI panels
- │   ├── settings/     # Settings forms (secrets, providers, brand, setup)
- │   └── schedule/     # WeekGrid, TimelineList, BriefEditor
+ │   ├── settings/     # Settings forms (secrets, providers, brand, setup, DangerTab)
+ │   ├── schedule/     # WeekGrid, TimelineList, BriefEditor, MonthView
+ │   └── brand-memory/ # BrandMemorySheet
  │
  ├── hooks/             # React hooks (data fetching, auth, compose, schedule)
- │   ├── useAuroraQuery.ts  # Legacy hook (being migrated)
+ │   ├── useAuroraQuery.ts  # Primary data query hub (TanStack Query)
  │   ├── useCompose.ts      # Compose page state & logic
  │   ├── useSchedule.ts     # Schedule page state & logic
  │   ├── useAuth.ts         # Authentication state
  │   └── useRealtime.ts     # Supabase Realtime subscriptions
  │
  ├── services/          # Business logic layer
- │   ├── ai/           # AI text/image generation
- │   │   ├── ai.service.ts
- │   │   └── providers/
- │   ├── publishing/   # Draft & publish operations
- │   ├── schedule/     # Calendar & scheduling logic
- │   ├── analytics/    # Engagement & cost analytics
- │   ├── facebook/     # Facebook Graph API integration
- │   ├── storage/      # File upload & storage
+ │   ├── base.ts             # BaseService with logging
+ │   ├── index.ts            # Service exports
+ │   ├── supabase-factory.ts # Client factory (cached)
  │   ├── auth-service.ts
  │   ├── dashboard-service.ts
- │   └── supabase-factory.ts
+ │   ├── brand-memory.service.ts
+ │   ├── strategy.service.ts # AI content strategy (analyzePage, buildAnalysisPrompt)
+ │   ├── ai/
+ │   │   ├── ai.service.ts   # AI text/image generation
+ │   │   └── providers/llm-providers.ts
+ │   ├── publishing/         # Draft + publish ops
+ │   ├── schedule/           # Calendar logic
+ │   ├── analytics/          # Engagement & cost analytics (WoW, growth trend)
+ │   ├── draft/              # Draft CRUD (approve/reject/bulk)
+ │   ├── facebook/           # [PLANNED] Facebook Graph API adapter (PlatformAdapter)
+ │   └── storage/            # [PLANNED] File upload & storage
  │
  ├── repositories/      # Data access layer (Supabase queries)
- │   ├── base.ts       # BaseRepository with pagination & error handling
+ │   ├── base.ts              # BaseRepository with pagination & error handling
  │   ├── page-repository.ts
  │   ├── brief-repository.ts
  │   ├── post-repository.ts
  │   ├── engagement-repository.ts
+ │   ├── brand-memory-repository.ts
+ │   ├── strategy-repository.ts
  │   ├── system-event-repository.ts
  │   └── usage-repository.ts
  │
- ├── validators/        # Zod validation schemas
+ ├── validators/        # Zod validation schemas (Zod)
  │
- ├── types/             # Shared TypeScript interfaces
+ ├── types/             # Shared TypeScript interfaces (Page, Brief, Post, Job, BrandMemory, etc.)
+ │   └── index.ts
  │
  ├── logger/            # Structured logging (debug/info/warn/error)
+ │   └── index.ts
  │
  ├── errors/            # Error hierarchy (AppError, ValidationError, etc.)
+ │   └── index.ts
  │
  ├── routes/            # TanStack Router routes (thin UI layer)
  │   ├── index.tsx     # Dashboard
  │   ├── compose.tsx   # Post composer
- │   ├── schedule.tsx  # Content calendar
+ │   ├── schedule.tsx  # Content calendar (week/list/month views)
  │   ├── drafts.tsx    # Draft approval queue
- │   ├── analytics.tsx # Engagement analytics
+ │   ├── analytics.tsx # Engagement analytics (WoW, growth, top posts)
  │   ├── settings.tsx  # Configuration hub
  │   └── api/proxy.ts  # CORS-bypass proxy
  │
-  └── lib/               # Infrastructure & utilities (NOT legacy — app-level infra separate from services)
-     ├── config-store.ts   # Encrypted localStorage config
-     ├── setup-runner.ts   # Supabase project provisioning
-     ├── management-api.ts # Supabase Management API wrapper
-     ├── migrations.ts     # Database migrations
-     └── crypto.ts         # AES-GCM encryption
+ └── lib/               # Infrastructure & utilities (NOT legacy)
+    ├── config-store.ts   # Encrypted localStorage config
+    ├── crypto.ts         # AES-GCM browser crypto
+    ├── edge-functions.ts # Edge function bundles
+    ├── setup-runner.ts   # Supabase project provisioning
+    ├── management-api.ts # Supabase Management API wrapper
+    ├── migrations.ts     # Database migrations (15 applied)
+    ├── manage-setup-client.ts # Client for manage-setup EF
+    ├── utils.ts          # Shared utilities
+    ├── user-error.ts     # Error sanitization
+    └── test-connections.ts # Credential validation
 ```
 
 ## Data Flow
@@ -174,11 +191,12 @@ Route (UI) → Hook (state) → Service (business logic) → Repository (data ac
 ## Extension Points
 
 ### Adding a new social platform
-1. Create `src/services/{platform}/` with types and service
-2. Add provider config in `validators/`
-3. Update `migrations/` for new tables
-4. Create repository for data access
-5. Add platform-specific UI components
+1. Implement the `PlatformAdapter` interface (defined in `supabase/functions/aurora-worker/index.ts`) with `validateToken`, `publishPost`, `fetchMetrics`
+2. Create `src/services/{platform}/` with types and service
+3. Add provider config in `validators/`
+4. Update `migrations/` for new tables
+5. Create repository for data access
+6. Add platform-specific UI components
 
 ### Adding a new AI provider
 1. Add to `AIProviderType` enum in `validators/`
