@@ -12,8 +12,9 @@ import {
 } from "./index/components";
 import { createUserClient } from "@/services/supabase-factory";
 import { StrategyService } from "@/services/strategy.service";
+import { BrandMemoryService } from "@/services/brand-memory.service";
 import { buildLlmConfig } from "@/services/ai/providers/llm-providers";
-import type { StrategyRecommendation } from "@/types";
+import type { StrategyRecommendation, BrandMemory } from "@/types";
 import {
   SparklesIcon,
   ArrowRightIcon,
@@ -83,6 +84,7 @@ function Dashboard() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [dismissedTypes, setDismissedTypes] = useState<Set<string>>(new Set());
+  const [brandMemory, setBrandMemory] = useState<BrandMemory | null>(null);
 
   async function handleAnalyze() {
     if (!pageId) return;
@@ -121,6 +123,17 @@ function Dashboard() {
       const svc = new StrategyService(sb);
       const recs = await svc.loadRecommendations(pageId);
       setRecommendations(recs);
+    })();
+  }, [pageId]);
+
+  useEffect(() => {
+    if (!pageId) return;
+    (async () => {
+      const sb = await createUserClient();
+      if (!sb) return;
+      const svc = new BrandMemoryService(sb);
+      const memory = await svc.load(pageId);
+      setBrandMemory(memory);
     })();
   }, [pageId]);
 
@@ -326,6 +339,67 @@ function Dashboard() {
             );
           })}
       </GlassCard>
+
+      {brandMemory && (brandMemory.brand_personality || (brandMemory.content_pillars?.length ?? 0) > 0) && (
+        <GlassCard className="p-5 mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <SparklesIcon className="h-5 w-5 text-accent" />
+            <h2 className="text-sm font-semibold">Brand Strategy</h2>
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              {brandMemory.llm_analyzed_at
+                ? `LLM analyzed ${format(new Date(brandMemory.llm_analyzed_at), "MMM d, HH:mm")}`
+                : "Auto-extracted only"}
+            </span>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {brandMemory.brand_personality && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Personality</p>
+                <p className="text-sm">{brandMemory.brand_personality}</p>
+              </div>
+            )}
+            {brandMemory.storytelling_style && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Storytelling</p>
+                <p className="text-sm">{brandMemory.storytelling_style}</p>
+              </div>
+            )}
+            {(brandMemory.content_pillars?.length ?? 0) > 0 && (
+              <div className="sm:col-span-2">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Content Pillars</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {brandMemory.content_pillars!.map((p, i) => (
+                    <span key={i} className="rounded-md bg-accent/10 px-2 py-0.5 text-xs text-accent border border-accent/20">{p}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {brandMemory.strengths_weaknesses && typeof brandMemory.strengths_weaknesses === "object" && !Array.isArray(brandMemory.strengths_weaknesses) && (
+              <div className="sm:col-span-2">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Strengths &amp; Weaknesses</p>
+                <div className="grid gap-2 sm:grid-cols-2 mt-1">
+                  <div className="rounded-lg bg-success/5 border border-success/15 p-2.5">
+                    <p className="text-[10px] font-medium text-success mb-0.5">Strengths</p>
+                    <ul className="text-xs text-muted-foreground space-y-0.5">
+                      {(brandMemory.strengths_weaknesses as Record<string, string[]>).strengths?.map((s: string, i: number) => (
+                        <li key={i}>+ {s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-lg bg-destructive/5 border border-destructive/15 p-2.5">
+                    <p className="text-[10px] font-medium text-destructive mb-0.5">Weaknesses</p>
+                    <ul className="text-xs text-muted-foreground space-y-0.5">
+                      {(brandMemory.strengths_weaknesses as Record<string, string[]>).weaknesses?.map((w: string, i: number) => (
+                        <li key={i}>- {w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </GlassCard>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <GlassPanel
