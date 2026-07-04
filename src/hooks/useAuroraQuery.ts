@@ -184,7 +184,7 @@ export type EngagementSnap = {
   impressions: number;
 };
 
-export type TopPost = { topic: string; url: string | null; score: number };
+export type TopPost = { topic: string; url: string | null; score: number; caption: string | null; likes: number; comments: number; shares: number; published_at: string | null };
 export type CostByProvider = { name: string; value: number };
 
 export function useAnalyticsData(days: number = 30) {

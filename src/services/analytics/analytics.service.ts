@@ -8,7 +8,7 @@ import { format } from "date-fns";
 import type { EngagementSnapshot, AiUsage } from "../../types";
 
 export type EngagementSeries = { date: string; likes: number; comments: number; shares: number };
-export type TopPost = { topic: string; url: string | null; score: number };
+export type TopPost = { topic: string; url: string | null; score: number; caption: string | null; likes: number; comments: number; shares: number; published_at: string | null };
 export type CostByProvider = { name: string; value: number };
 
 export class AnalyticsService extends BaseService {
@@ -66,22 +66,38 @@ export class AnalyticsService extends BaseService {
     );
     const postIdToBrief = new Map(
       rawPosts.map(
-        (p) => [p.id, { brief: briefMap.get(p.content_brief_id ?? "") ?? "Untitled", url: p.fb_permalink_url }],
+        (p) => [p.id, {
+          brief: briefMap.get(p.content_brief_id ?? "") ?? "Untitled",
+          url: p.fb_permalink_url,
+          caption: p.content_briefs?.[0]?.caption ?? null,
+          published_at: p.published_at,
+        }],
       ),
     );
-    const scoreByPost = new Map<string, number>();
+    const scoreByPost = new Map<string, { score: number; likes: number; comments: number; shares: number }>();
     for (const s of snaps) {
-      scoreByPost.set(
-        s.post_id,
-        (scoreByPost.get(s.post_id) ?? 0) + s.likes + s.comments * 2 + s.shares * 3,
-      );
+      const cur = scoreByPost.get(s.post_id) ?? { score: 0, likes: 0, comments: 0, shares: 0 };
+      cur.score = cur.score + s.likes + s.comments * 2 + s.shares * 3;
+      cur.likes += s.likes;
+      cur.comments += s.comments;
+      cur.shares += s.shares;
+      scoreByPost.set(s.post_id, cur);
     }
     return Array.from(scoreByPost.entries())
-      .sort((a, z) => z[1] - a[1])
+      .sort((a, z) => z[1].score - a[1].score)
       .slice(0, 5)
-      .map(([pid, score]) => {
+      .map(([pid, agg]) => {
         const meta = postIdToBrief.get(pid);
-        return { topic: meta?.brief ?? "Unknown", url: meta?.url ?? null, score };
+        return {
+          topic: meta?.brief ?? "Unknown",
+          url: meta?.url ?? null,
+          score: agg.score,
+          caption: meta?.caption ?? null,
+          likes: agg.likes,
+          comments: agg.comments,
+          shares: agg.shares,
+          published_at: meta?.published_at ?? null,
+        };
       });
   }
 

@@ -15,6 +15,7 @@ export type PublishedPostWithMetrics = {
   published_at: string;
   fb_permalink_url: string | null;
   content_brief_id: string | null;
+  content_briefs?: { topic: string | null; caption: string | null }[] | null;
 };
 
 export class PostRepository extends BaseRepository {
@@ -64,7 +65,7 @@ export class PostRepository extends BaseRepository {
   async findPublishedWithMetrics(since: string): Promise<PublishedPostWithMetrics[]> {
     const { data, error } = await this.client
       .from("posts")
-      .select("id, published_at, fb_permalink_url, content_brief_id")
+      .select("id, published_at, fb_permalink_url, content_brief_id, content_briefs(topic, caption)")
       .gte("published_at", since)
       .order("published_at", { ascending: false });
     if (error) this.handleError(error, "posts.findPublishedWithMetrics");

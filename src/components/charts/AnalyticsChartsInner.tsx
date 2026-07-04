@@ -1,3 +1,4 @@
+import { format } from "date-fns";
 import { GlassPanel } from "../glass/GlassCard";
 import {
   ResponsiveContainer,
@@ -18,7 +19,7 @@ const COLORS = ["oklch(0.78 0.16 195)", "oklch(0.70 0.18 320)", "oklch(0.78 0.16
 export default function AnalyticsChartsInner(props: {
   series: { date: string; likes: number; comments: number; shares: number }[];
   costByProvider: { name: string; value: number }[];
-  topPosts: { topic: string; url: string | null; score: number }[];
+  topPosts: { topic: string; url: string | null; score: number; caption: string | null; likes: number; comments: number; shares: number; published_at: string | null }[];
   totalCost: number;
 }) {
   return (
@@ -75,16 +76,26 @@ export default function AnalyticsChartsInner(props: {
           <Empty>No published posts yet.</Empty>
         ) : (
           <ol className="space-y-2">
-            {props.topPosts.map((p, i) => (
-              <li key={i} className="glass rounded-xl p-3 flex items-center gap-3">
-                <span className="font-display text-2xl text-muted-foreground w-8 text-center">{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{p.topic}</p>
-                  <p className="text-xs text-muted-foreground">Engagement score: {p.score}</p>
-                </div>
-                {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">View →</a>}
-              </li>
-            ))}
+            {props.topPosts.map((p, i) => {
+              const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
+              return (
+                <li key={i} className="glass rounded-xl p-3 flex items-start gap-3">
+                  <span className="font-display text-xl text-muted-foreground w-8 text-center shrink-0">{medal ?? `#${i + 1}`}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{p.topic}</p>
+                    {p.caption && <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{p.caption}</p>}
+                    <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                      <span>Score: {p.score}</span>
+                      <span>♥ {p.likes}</span>
+                      <span>💬 {p.comments}</span>
+                      <span>↗ {p.shares}</span>
+                      {p.published_at && <span>{format(new Date(p.published_at), "MMM d")}</span>}
+                    </div>
+                  </div>
+                  {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline shrink-0 mt-1">View →</a>}
+                </li>
+              );
+            })}
           </ol>
         )}
       </GlassPanel>

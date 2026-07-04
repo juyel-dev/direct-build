@@ -5,7 +5,7 @@ const AnalyticsChartsInner = lazy(() => import("./AnalyticsChartsInner"));
 export function AnalyticsCharts(props: {
   series: { date: string; likes: number; comments: number; shares: number }[];
   costByProvider: { name: string; value: number }[];
-  topPosts: { topic: string; url: string | null; score: number }[];
+  topPosts: { topic: string; url: string | null; score: number; caption: string | null; likes: number; comments: number; shares: number; published_at: string | null }[];
   totalCost: number;
 }) {
   return (
