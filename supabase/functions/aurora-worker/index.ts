@@ -1,8 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.108.1";
 
-type Json = Record<string, unknown>;
+// ─── Inline types (Deno cannot import from the Bun/Vite project) ──────────
+// These are subsets of src/types/index.ts — update both when fields change.
+// Sync-check: grep for "type Json\|type Page\|type Brief\|type Job" in both
+// files and verify field overlap.
+type Json = Record<string, unknown>;              // src/types/index.ts:1
 
-type Page = {
+type Page = {                                     // src/types/index.ts:3
   id: string;
   fb_page_id: string | null;
   fb_page_name: string;
@@ -13,7 +17,7 @@ type Page = {
   prompt_overrides: Json | null;
 };
 
-type Brief = {
+type Brief = {                                    // src/types/index.ts:21
   id: string;
   page_id: string;
   slot_start: string;
@@ -28,7 +32,7 @@ type Brief = {
   status: string;
 };
 
-type Job = {
+type Job = {                                      // src/types/index.ts:84
   id: string;
   page_id: string | null;
   kind: string;
@@ -1299,6 +1303,7 @@ type PostWithEngagement = {
   content_briefs: { topic?: string | null; caption?: string | null; predicted_engagement_score?: number | null } | null;
 };
 
+// src/types/index.ts:142 (StrategyRecommendation)
 type StrategyRec = {
   recommendation_type: string;
   recommendation_text: string;
@@ -1485,6 +1490,7 @@ async function callLlmForStrategy(
   return valid;
 }
 
+// Mirrors src/services/strategy.service.ts computeDeterministicRecs
 function computeDeterministicRecs(
   memory: BrandMemoryRow | null,
   insights: Record<string, unknown>,
@@ -1643,6 +1649,7 @@ async function loadInsights(pageId: string) {
   return data ?? {};
 }
 
+// src/types/index.ts:156 (BrandMemory)
 type BrandMemoryRow = {
   brand_descriptors: string[];
   audience_profile: Json;

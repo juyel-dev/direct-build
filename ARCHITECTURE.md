@@ -64,7 +64,7 @@ src/
  │   ├── settings.tsx  # Configuration hub
  │   └── api/proxy.ts  # CORS-bypass proxy
  │
- └── lib/               # Legacy modules (being migrated)
+  └── lib/               # Infrastructure & utilities (NOT legacy — app-level infra separate from services)
      ├── config-store.ts   # Encrypted localStorage config
      ├── setup-runner.ts   # Supabase project provisioning
      ├── management-api.ts # Supabase Management API wrapper

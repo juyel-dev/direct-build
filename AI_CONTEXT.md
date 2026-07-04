@@ -118,7 +118,7 @@ Route (UI) → Hook (state) → Service (business logic) → Repository (data ac
 | **Types** | `src/types/` | Shared TypeScript interfaces (Page, Brief, Post, Job, etc.). |
 | **Logger** | `src/logger/` | Structured logging (debug/info/warn/error) with `createLogger(name)`. |
 | **Errors** | `src/errors/` | Error hierarchy (AppError, ValidationError, AuthError, etc.). |
-| **Lib** | `src/lib/` | Legacy modules (config-store, crypto, setup-runner). Being migrated. |
+| **Lib** | `src/lib/` | Infrastructure & utility modules (config-store, crypto, migrations, setup-runner). NOT a legacy dir — keeps app-level infra separate from business-logic services. |
 
 ### Service Boundaries
 
@@ -295,14 +295,14 @@ src/
  │   ├── OptimizedImage.tsx                  # Lazy, fade-in, shimmer placeholder
  │   └── charts/
  │
- └── lib/               # Legacy modules (being migrated)
-     ├── config-store.ts   # Encrypted localStorage config
-     ├── crypto.ts         # AES-GCM browser crypto
-     ├── edge-functions.ts # Edge function bundles (worker + manage-setup)
-     ├── setup-runner.ts   # Supabase project provisioning (SQL injection fixed, parameterized queries)
-     ├── management-api.ts # Supabase Management API wrapper
-     ├── migrations.ts     # Database migrations
-     └── manage-setup-client.ts # Client for manage-setup edge function
+  └── lib/               # Infrastructure & utilities (NOT legacy — keeps infra separate from services)
+      ├── config-store.ts   # Encrypted localStorage config
+      ├── crypto.ts         # AES-GCM browser crypto
+      ├── edge-functions.ts # Edge function bundles (worker + manage-setup)
+      ├── setup-runner.ts   # Supabase project provisioning (SQL injection fixed, parameterized queries)
+      ├── management-api.ts # Supabase Management API wrapper
+      ├── migrations.ts     # Database migrations
+      └── manage-setup-client.ts # Client for manage-setup edge function
 
 supabase/functions/
  ├── aurora-worker/index.ts              # Background planner/publisher/analytics

@@ -266,6 +266,7 @@ export class StrategyService extends BaseService {
     return this.repo.findByPage(pageId);
   }
 
+  // Mirrors supabase/functions/aurora-worker/index.ts computeDeterministicRecs
   private computeDeterministicRecs(
     memory: BrandMemory | null,
     insights: Record<string, unknown>,
