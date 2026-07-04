@@ -10,7 +10,7 @@ import { AiService } from "../services/ai/ai.service";
 import { buildLlmConfig } from "../services/ai/providers/llm-providers";
 import { getSessionPassphrase, loadSecrets, loadProviders } from "../lib/config-store";
 
-export type ViewMode = "week" | "list";
+export type ViewMode = "week" | "list" | "month";
 
 export function useSchedule() {
   const [pageId, setPageId] = useState<string>("");
@@ -19,6 +19,7 @@ export function useSchedule() {
   const [generating, setGenerating] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("week");
   const [weekOffset, setWeekOffset] = useState(0);
+  const [monthOffset, setMonthOffset] = useState(0);
   const [search, setSearch] = useState("");
   const brand = useMemo(() => loadBrand(), []);
 
@@ -181,6 +182,7 @@ Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene des
     generating,
     view,
     weekOffset,
+    monthOffset,
     weekDays,
     search,
     isLoading,
@@ -190,6 +192,7 @@ Caption ≤ 280 chars. 5-8 lowercase hashtags. Image prompt is a vivid scene des
     setPreviewing,
     setView,
     setWeekOffset,
+    setMonthOffset,
     setSearch,
     createBriefAt,
     saveBrief,

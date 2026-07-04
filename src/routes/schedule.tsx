@@ -22,6 +22,7 @@ import {
 import { WeekGrid } from "@/features/schedule/WeekGrid";
 import { TimelineList } from "@/features/schedule/TimelineList";
 import { BriefEditor } from "@/features/schedule/BriefEditor";
+import { MonthView } from "@/features/schedule/MonthView";
 
 export const Route = createFileRoute("/schedule")({
   head: () => ({ meta: [{ title: "Schedule — Aurora" }, { name: "description", content: "Plan, edit, and reschedule Facebook posts with drag-and-drop and a real Facebook preview." }] }),
@@ -39,6 +40,7 @@ function SchedulePage() {
     generating,
     view,
     weekDays,
+    monthOffset,
     search,
     isLoading,
     brand,
@@ -47,6 +49,7 @@ function SchedulePage() {
     setPreviewing,
     setView,
     setWeekOffset,
+    setMonthOffset,
     setSearch,
     createBriefAt,
     saveBrief,
@@ -104,18 +107,37 @@ function SchedulePage() {
               title="Timeline list"
               aria-label="List view"
             ><ListBulletIcon className="h-3.5 w-3.5" /> List</button>
+            <button
+              onClick={() => setView("month")}
+              className={`h-8 px-2.5 rounded-lg text-xs inline-flex items-center gap-1.5 ${view === "month" ? "bg-white/15" : "text-muted-foreground"}`}
+              title="Month view"
+              aria-label="Month view"
+            ><CalendarDaysIcon className="h-3.5 w-3.5" /> Month</button>
           </div>
         </div>
       </header>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="glass rounded-xl flex items-center">
-          <button onClick={() => setWeekOffset((n) => n - 1)} className="h-9 w-9 grid place-items-center hover:bg-white/10 rounded-l-xl" aria-label="Previous week">‹</button>
-          <button onClick={() => setWeekOffset(0)} className="h-9 px-3 text-xs hover:bg-white/10 inline-flex items-center gap-1.5">
-            <CalendarDaysIcon className="h-3.5 w-3.5" />
-            {format(weekDays[0], "MMM d")} – {format(weekDays[6], "MMM d")}
-          </button>
-          <button onClick={() => setWeekOffset((n) => n + 1)} className="h-9 w-9 grid place-items-center hover:bg-white/10 rounded-r-xl" aria-label="Next week">›</button>
+          {view === "month" ? (
+            <>
+              <button onClick={() => setMonthOffset((n) => n - 1)} className="h-9 w-9 grid place-items-center hover:bg-white/10 rounded-l-xl" aria-label="Previous month">‹</button>
+              <button onClick={() => setMonthOffset(0)} className="h-9 px-3 text-xs hover:bg-white/10 inline-flex items-center gap-1.5">
+                <CalendarDaysIcon className="h-3.5 w-3.5" />
+                {format(new Date(new Date().getFullYear(), new Date().getMonth() + monthOffset, 1), "MMMM yyyy")}
+              </button>
+              <button onClick={() => setMonthOffset((n) => n + 1)} className="h-9 w-9 grid place-items-center hover:bg-white/10 rounded-r-xl" aria-label="Next month">›</button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setWeekOffset((n) => n - 1)} className="h-9 w-9 grid place-items-center hover:bg-white/10 rounded-l-xl" aria-label="Previous week">‹</button>
+              <button onClick={() => setWeekOffset(0)} className="h-9 px-3 text-xs hover:bg-white/10 inline-flex items-center gap-1.5">
+                <CalendarDaysIcon className="h-3.5 w-3.5" />
+                {format(weekDays[0], "MMM d")} – {format(weekDays[6], "MMM d")}
+              </button>
+              <button onClick={() => setWeekOffset((n) => n + 1)} className="h-9 w-9 grid place-items-center hover:bg-white/10 rounded-r-xl" aria-label="Next week">›</button>
+            </>
+          )}
         </div>
         {pages.length > 1 ? (
           <select
@@ -175,6 +197,15 @@ function SchedulePage() {
           briefs={briefs}
           onOpen={(b) => setEditing(b)}
           onPreview={(b) => setPreviewing(b)}
+          onAdd={(d) => createBriefAt(nextSuggestedSlot(d))}
+        />
+      )}
+
+      {pages.length > 0 && view === "month" && (
+        <MonthView
+          monthOffset={monthOffset}
+          briefs={briefs}
+          onOpen={(b) => setEditing(b)}
           onAdd={(d) => createBriefAt(nextSuggestedSlot(d))}
         />
       )}
