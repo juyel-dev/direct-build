@@ -1485,6 +1485,80 @@ async function callLlmForStrategy(
   return valid;
 }
 
+function computeDeterministicRecs(
+  memory: BrandMemoryRow | null,
+  insights: Record<string, unknown>,
+  posts: PostWithEngagement[],
+  page: Page,
+): StrategyRec[] {
+  const recs: StrategyRec[] = [];
+
+  if (memory?.best_posting_days?.length) {
+    recs.push({
+      recommendation_type: "deterministic_timing",
+      recommendation_text: `Your best posting days are ${memory.best_posting_days.join(", ")}. Schedule your most important content on these days.`,
+      reasoning: `Analysis of ${posts.length} posts shows highest engagement on ${memory.best_posting_days.join(", ")}.`,
+      priority: 7,
+    });
+  }
+
+  if (memory?.cta_frequency && memory.cta_frequency === "rare") {
+    recs.push({
+      recommendation_type: "deterministic_content",
+      recommendation_text: "Fewer than 10% of your posts include a call-to-action. Adding CTAs like 'Click the link' or 'Share your thoughts' can boost engagement.",
+      reasoning: `CTA frequency is ${memory.cta_frequency} across ${posts.length} analyzed posts.`,
+      priority: 8,
+    });
+  } else if (memory?.cta_frequency && memory.cta_frequency === "occasional") {
+    recs.push({
+      recommendation_type: "deterministic_content",
+      recommendation_text: "About a quarter of your posts include a call-to-action. Try increasing CTAs to drive more clicks and comments.",
+      reasoning: `CTA frequency is ${memory.cta_frequency}.`,
+      priority: 5,
+    });
+  }
+
+  if (memory?.media_usage_ratio != null && memory.media_usage_ratio < 0.5) {
+    recs.push({
+      recommendation_type: "deterministic_content",
+      recommendation_text: `Only ${Math.round(memory.media_usage_ratio * 100)}% of your posts include images. Photo posts typically get significantly more engagement than text-only posts.`,
+      reasoning: `Media usage ratio is ${memory.media_usage_ratio}.`,
+      priority: 7,
+    });
+  }
+
+  if (memory?.hashtag_count_avg != null && memory.hashtag_count_avg < 1) {
+    recs.push({
+      recommendation_type: "deterministic_hashtag",
+      recommendation_text: "Your posts use very few hashtags. Adding 3-5 relevant hashtags can increase discoverability.",
+      reasoning: `Average hashtag count is ${memory.hashtag_count_avg}.`,
+      priority: 4,
+    });
+  }
+
+  if (memory?.effective_hashtags?.length) {
+    recs.push({
+      recommendation_type: "deterministic_hashtag",
+      recommendation_text: `Your top-performing hashtags are: ${memory.effective_hashtags.slice(0, 5).join(", ")}. Use these consistently.`,
+      reasoning: "Based on engagement correlation with hashtag usage across your posts.",
+      priority: 5,
+    });
+  }
+
+  const bestHour = (insights.best_posting_hour as number | null) ?? null;
+  if (bestHour != null) {
+    const hourStr = bestHour > 12 ? `${bestHour - 12}pm` : bestHour === 12 ? "12pm" : `${bestHour}am`;
+    recs.push({
+      recommendation_type: "deterministic_timing",
+      recommendation_text: `Your best posting time is around ${hourStr}. Schedule posts near this hour for maximum reach.`,
+      reasoning: `Peak engagement hour identified from ${posts.length} posts.`,
+      priority: 6,
+    });
+  }
+
+  return recs;
+}
+
 async function generateStrategy(page: Page) {
   if (!AI_API_KEY) return "Skipped — no AI API key configured.";
   if (!await isProviderAvailable("llm")) return "Skipped — LLM provider in cooldown.";
@@ -1499,20 +1573,23 @@ async function generateStrategy(page: Page) {
   const baseUrl = LLM_BASE_URL || defaultLlmBaseUrl(LLM_PROVIDER);
   if (!baseUrl) return "Skipped — no LLM base URL configured.";
 
-  let recommendations: StrategyRec[];
+  let aiRecommendations: StrategyRec[];
   try {
-    recommendations = await callLlmForStrategy(prompt, baseUrl, AI_API_KEY, LLM_MODEL, page.id);
+    aiRecommendations = await callLlmForStrategy(prompt, baseUrl, AI_API_KEY, LLM_MODEL, page.id);
   } catch (error) {
     log("warn", "Strategy LLM primary model failed, checking fallback", {
       model: LLM_MODEL, error: messageOf(error),
     });
     if (!FALLBACK_LLM_MODEL) throw error;
-    recommendations = await callLlmForStrategy(prompt, baseUrl, AI_API_KEY, FALLBACK_LLM_MODEL, page.id);
+    aiRecommendations = await callLlmForStrategy(prompt, baseUrl, AI_API_KEY, FALLBACK_LLM_MODEL, page.id);
   }
+
+  const deterministicRecs = computeDeterministicRecs(memory, insights, posts, page);
+  const allRecs = [...aiRecommendations, ...deterministicRecs];
 
   const { error: rpcError } = await supabase.rpc("replace_strategy_recommendations", {
     _page_id: page.id,
-    _recommendations: JSON.stringify(recommendations.map((r) => ({
+    _recommendations: JSON.stringify(allRecs.map((r) => ({
       recommendation_type: r.recommendation_type,
       recommendation_text: r.recommendation_text,
       reasoning: r.reasoning,
@@ -1524,7 +1601,7 @@ async function generateStrategy(page: Page) {
   });
   if (rpcError) throw rpcError;
 
-  return `Generated ${recommendations.length} strategy recommendations.`;
+  return `Generated ${aiRecommendations.length} AI + ${deterministicRecs.length} deterministic recommendations.`;
 }
 
 async function completeJob(job: Job, status: string, detail: string) {

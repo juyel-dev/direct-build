@@ -288,6 +288,14 @@ function Dashboard() {
               timing: "border-l-warning",
               brand_voice: "border-l-success",
               content_angle: "border-l-[oklch(0.70_0.20_320)]",
+              deterministic_timing: "border-l-warning",
+              deterministic_content: "border-l-primary",
+              deterministic_hashtag: "border-l-[oklch(0.55_0.15_160)]",
+            };
+            const typeLabels: Record<string, string> = {
+              deterministic_timing: "data-driven timing",
+              deterministic_content: "data-driven content",
+              deterministic_hashtag: "data-driven hashtag",
             };
             return (
               <div
@@ -298,7 +306,7 @@ function Dashboard() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        {rec.recommendation_type}
+                        {typeLabels[rec.recommendation_type] ?? rec.recommendation_type}
                       </span>
                       <span className="text-[10px] text-muted-foreground/60">
                         priority {rec.priority}/10

@@ -229,9 +229,9 @@ export class StrategyService extends BaseService {
     const existing = await this.repo.findByPage(pageId);
 
     const prompt = buildAnalysisPrompt(memory, insights, rawPosts);
-    let recommendations;
+    let aiRecommendations;
     try {
-      recommendations = await this.callLlm(prompt, llm);
+      aiRecommendations = await this.callLlm(prompt, llm);
     } catch (e) {
       this.log("error", "AI strategy analysis failed, falling back to cached", {
         error: e instanceof Error ? e.message : String(e),
@@ -241,7 +241,10 @@ export class StrategyService extends BaseService {
       throw e;
     }
 
-    const batch = recommendations.map((rec) => ({
+    const deterministicRecs = this.computeDeterministicRecs(memory, insights, rawPosts);
+    const allRecs = [...aiRecommendations, ...deterministicRecs];
+
+    const batch = allRecs.map((rec) => ({
       page_id: pageId,
       recommendation_type: rec.recommendation_type ?? "content_strategy",
       recommendation_text: rec.recommendation_text ?? "",
@@ -261,6 +264,70 @@ export class StrategyService extends BaseService {
     }
 
     return this.repo.findByPage(pageId);
+  }
+
+  private computeDeterministicRecs(
+    memory: BrandMemory | null,
+    insights: Record<string, unknown>,
+    posts: PostWithMetrics[],
+  ): Array<{ recommendation_type: string; recommendation_text: string; reasoning: string; priority: number; related_content?: unknown[] }> {
+    const recs: Array<{ recommendation_type: string; recommendation_text: string; reasoning: string; priority: number; related_content?: unknown[] }> = [];
+
+    if (memory?.best_posting_days?.length) {
+      recs.push({
+        recommendation_type: "deterministic_timing",
+        recommendation_text: `Your best posting days are ${memory.best_posting_days.join(", ")}. Schedule your most important content on these days.`,
+        reasoning: `Analysis of ${posts.length} posts shows highest engagement on ${memory.best_posting_days.join(", ")}.`,
+        priority: 7,
+      });
+    }
+
+    if (memory?.cta_frequency && memory.cta_frequency === "rare") {
+      recs.push({
+        recommendation_type: "deterministic_content",
+        recommendation_text: "Fewer than 10% of your posts include a call-to-action. Adding CTAs can boost engagement.",
+        reasoning: `CTA frequency is ${memory.cta_frequency} across ${posts.length} analyzed posts.`,
+        priority: 8,
+      });
+    } else if (memory?.cta_frequency && memory.cta_frequency === "occasional") {
+      recs.push({
+        recommendation_type: "deterministic_content",
+        recommendation_text: "About a quarter of your posts include a call-to-action. Try increasing CTAs to drive more clicks.",
+        reasoning: `CTA frequency is ${memory.cta_frequency}.`,
+        priority: 5,
+      });
+    }
+
+    if (memory?.media_usage_ratio != null && memory.media_usage_ratio < 0.5) {
+      recs.push({
+        recommendation_type: "deterministic_content",
+        recommendation_text: `Only ${Math.round(memory.media_usage_ratio * 100)}% of your posts include images. Photo posts typically get more engagement.`,
+        reasoning: `Media usage ratio is ${memory.media_usage_ratio}.`,
+        priority: 7,
+      });
+    }
+
+    if (memory?.effective_hashtags?.length) {
+      recs.push({
+        recommendation_type: "deterministic_hashtag",
+        recommendation_text: `Your top-performing hashtags are: ${memory.effective_hashtags.slice(0, 5).join(", ")}. Use these consistently.`,
+        reasoning: "Based on engagement correlation with hashtag usage across your posts.",
+        priority: 5,
+      });
+    }
+
+    const bestHour = (insights.best_posting_hour as number | null) ?? null;
+    if (bestHour != null) {
+      const hourStr = bestHour > 12 ? `${bestHour - 12}pm` : bestHour === 12 ? "12pm" : `${bestHour}am`;
+      recs.push({
+        recommendation_type: "deterministic_timing",
+        recommendation_text: `Your best posting time is around ${hourStr}. Schedule posts near this hour for maximum reach.`,
+        reasoning: `Peak engagement hour identified from ${posts.length} posts.`,
+        priority: 6,
+      });
+    }
+
+    return recs;
   }
 
   private async loadPostHistory(pageId: string): Promise<PostWithMetrics[]> {
