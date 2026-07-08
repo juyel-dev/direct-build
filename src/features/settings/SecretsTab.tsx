@@ -21,7 +21,7 @@ import {
   ArrowTopRightOnSquareIcon,
 } from "@heroicons/react/24/outline";
 import { testFacebook, testManagementApi, testSupabaseRest, type TestResult } from "@/lib/test-connections";
-import { invalidateUserSupabase } from "@/lib/user-supabase";
+import { invalidateClient } from "@/services/supabase-factory";
 
 const EMPTY: Secrets = {
   supabaseUrl: "",
@@ -96,7 +96,7 @@ export function SecretsTab({ onSaved }: { onSaved?: (s: Secrets) => void }) {
     try {
       await saveSecrets(parsed.data, p);
       setSavedAt(Date.now());
-      invalidateUserSupabase();
+      invalidateClient();
       onSaved?.(parsed.data);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

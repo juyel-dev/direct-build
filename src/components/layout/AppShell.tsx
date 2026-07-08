@@ -18,7 +18,7 @@ import {
 import { GlassButton } from "@/components/glass/GlassButton";
 import { cn } from "@/lib/utils";
 import { clearSessionPassphrase, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
-import { invalidateUserSupabase } from "@/lib/user-supabase";
+import { invalidateClient } from "@/services/supabase-factory";
 import { useDraftCount, useAlertCount } from "@/hooks/useAuroraQuery";
 
 const NAV = [
@@ -96,7 +96,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   onClick={() => {
                     if (unlocked) {
                       clearSessionPassphrase();
-                      invalidateUserSupabase();
+                      invalidateClient();
                       setUnlocked(false);
                     }
                   }}
