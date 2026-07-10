@@ -277,21 +277,30 @@ insert into public._migrations (id, name) values (2, 'automation_runtime') on co
 -- User isolation via Supabase Auth
 -- Each table gets a user_id column referencing auth.users
 -- RLS policies check auth.uid() instead of open_all
+--
+-- Note: this migration is always safe to run, with or without Supabase
+-- Auth configured. Backward compatibility comes from the nullable
+-- user_id columns and the case-based RLS policies below (they fall
+-- back to fully-open access whenever auth.uid() is null), not from a
+-- schema-existence guard -- Supabase provisions the auth schema on
+-- every project by default, so an "only if auth schema exists" guard
+-- would never actually skip anything.
 
--- Only run if auth schema exists (Supabase Auth enabled)
-do $$
-begin
-  if not exists (select 1 from information_schema.schemata where schema_name = 'auth') then
-    return;
-  end if;
-end $$;
-
--- Add user_id columns (nullable for backward compatibility)
+-- Add user_id columns (nullable for backward compatibility) to every
+-- table that gets a user-aware RLS policy below. Previously only 5 of
+-- these 9 tables got the column, which made the policy-creation loop
+-- below fail with "column user_id does not exist" the moment it
+-- reached engagement_snapshots -- reproduced directly against a live
+-- Supabase project before this fix.
 alter table public.pages add column if not exists user_id uuid references auth.users(id) on delete cascade;
 alter table public.content_briefs add column if not exists user_id uuid references auth.users(id) on delete cascade;
 alter table public.posts add column if not exists user_id uuid references auth.users(id) on delete cascade;
 alter table public.jobs add column if not exists user_id uuid references auth.users(id) on delete cascade;
 alter table public.ai_usage add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.engagement_snapshots add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.system_events add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.app_settings add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.strategy_insights add column if not exists user_id uuid references auth.users(id) on delete cascade;
 
 -- Index user_id columns
 create index if not exists idx_pages_user on public.pages (user_id);
@@ -299,6 +308,9 @@ create index if not exists idx_briefs_user on public.content_briefs (user_id);
 create index if not exists idx_posts_user on public.posts (user_id);
 create index if not exists idx_jobs_user on public.jobs (user_id);
 create index if not exists idx_usage_user on public.ai_usage (user_id);
+create index if not exists idx_snapshots_user on public.engagement_snapshots (user_id);
+create index if not exists idx_events_user on public.system_events (user_id);
+create index if not exists idx_insights_user on public.strategy_insights (user_id);
 
 -- RPC: Set user_id on insert trigger function
 create or replace function public.set_user_id()
@@ -314,12 +326,13 @@ begin
   return new;
 end $$;
 
--- Drop old open_all policies
+-- Drop old open_all policies (and any prior user_or_open, for idempotency)
 do $$
 declare t text;
 begin
   for t in select unnest(array['pages','content_briefs','posts','engagement_snapshots','jobs','ai_usage','system_events','app_settings','strategy_insights']) loop
     execute format('drop policy if exists "open_all" on public.%I', t);
+    execute format('drop policy if exists "user_or_open" on public.%I', t);
   end loop;
 end $$;
 
@@ -352,7 +365,7 @@ end $$;
 do $$
 declare t text;
 begin
-  for t in select unnest(array['pages','content_briefs','posts','jobs','ai_usage']) loop
+  for t in select unnest(array['pages','content_briefs','posts','jobs','ai_usage','engagement_snapshots','system_events','app_settings','strategy_insights']) loop
     execute format('
       drop trigger if exists trg_set_user_id on public.%I;
       create trigger trg_set_user_id
@@ -868,6 +881,30 @@ set schema_version = 16,
 where id = 1;
 
 insert into public._migrations (id, name) values (16, 'configurable_cron_interval') on conflict (id) do nothing;
+`,
+  },
+  {
+    id: 17,
+    name: "content_briefs_publishing_status",
+    sql: `
+-- The worker's claimBriefForPublish() atomically transitions a brief to
+-- status 'publishing' while it claims it for the publish attempt (see
+-- claimBriefForPublish in supabase/functions/aurora-worker/index.ts).
+-- 'publishing' was never a permitted value in this constraint, so every
+-- single claim attempt violated it and threw -- confirmed by reproducing
+-- the exact "violates check constraint content_briefs_status_check"
+-- error against a live disposable Supabase project before this fix.
+alter table public.content_briefs drop constraint if exists content_briefs_status_check;
+alter table public.content_briefs add constraint content_briefs_status_check
+  check (status in ('draft','approved','scheduled','publishing','published','skipped','failed'));
+
+update public.app_settings
+set schema_version = 17,
+    config = coalesce(config, '{}'::jsonb) || jsonb_build_object('content_briefs_publishing_status', 'v1'),
+    updated_at = now()
+where id = 1;
+
+insert into public._migrations (id, name) values (17, 'content_briefs_publishing_status') on conflict (id) do nothing;
 `,
   },
 ];

@@ -39,7 +39,7 @@ export type Brief = {
   updated_at: string;
 };
 
-export type BriefStatus = "draft" | "approved" | "scheduled" | "published" | "skipped" | "failed";
+export type BriefStatus = "draft" | "approved" | "scheduled" | "publishing" | "published" | "skipped" | "failed";
 
 export type Post = {
   id: string;

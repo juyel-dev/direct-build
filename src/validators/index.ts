@@ -86,7 +86,7 @@ export const ContentBriefSchema = z.object({
   cta: z.string().default(""),
   prompt_version: z.string().default("unknown"),
   status: z
-    .enum(["draft", "approved", "scheduled", "published", "skipped", "failed"])
+    .enum(["draft", "approved", "scheduled", "publishing", "published", "skipped", "failed"])
     .default("draft"),
 });
 
