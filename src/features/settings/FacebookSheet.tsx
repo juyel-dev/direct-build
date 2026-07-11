@@ -53,10 +53,26 @@ export function FacebookSheet({
       open={open}
       onOpenChange={(v) => !v && onClose()}
       title="Facebook page"
-      description="Page Access Token from Graph API Explorer."
+      description="Use a long-lived Page Access Token — see the note below before pasting one from Graph API Explorer."
       footer={<SaveBar onSave={save} onClose={onClose} saving={saving} saved={saved} error={err} />}
     >
       <div className="flex flex-col gap-4">
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          Tokens copied directly from Graph API Explorer are usually
+          short-lived (~1–2 hours) and will cause automation to silently
+          stop working. Open Facebook's{" "}
+          <a
+            href="https://developers.facebook.com/tools/debug/accesstoken/"
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+          >
+            Access Token Debugger
+          </a>{" "}
+          and use "Extend Access Token" to get a long-lived one first, or
+          click Test below after pasting — it will tell you how long your
+          token has left.
+        </p>
         <Field label="Page ID">
           <GlassInput
             value={draft.id}
