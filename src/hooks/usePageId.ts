@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getUserSupabase } from "@/lib/user-supabase";
+import { createUserClient } from "@/services/supabase-factory";
 import { getSessionPassphrase, hasStoredSecrets, loadInstallStatus } from "@/lib/config-store";
 
 /**
@@ -26,7 +26,7 @@ export function usePageId(): string | null | undefined {
       }
 
       try {
-        const sb = await getUserSupabase();
+        const sb = await createUserClient();
         if (!sb || cancelled) return;
 
         const { data } = await sb.from("pages").select("id").eq("status", "active").limit(1).maybeSingle();

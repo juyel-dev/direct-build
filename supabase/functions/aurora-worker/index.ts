@@ -120,7 +120,10 @@ class FacebookAdapter implements PlatformAdapter {
     fbPostId: string,
     token: string,
   ): Promise<{ likes: number; comments: number; shares: number; reach: number; impressions: number }> {
-    const fields = "likes.summary(true),comments.summary(true),shares,reach,impressions";
+    // See fetchFacebookMetrics() below for why insights.metric(...) with
+    // post_media_view/post_total_media_view_unique is used instead of the
+    // deprecated bare reach/impressions fields.
+    const fields = "likes.summary(true),comments.summary(true),shares,insights.metric(post_media_view,post_total_media_view_unique)";
     const url = `${this.baseUrl}/${encodeURIComponent(fbPostId)}?fields=${encodeURIComponent(fields)}`;
     const response = await fetchWithTimeout(url, {
       timeout: 10_000,
@@ -131,12 +134,20 @@ class FacebookAdapter implements PlatformAdapter {
       log("warn", "facebook_metrics_fetch_failed", { fbPostId, error: body.error?.message ?? `HTTP ${response.status}` });
       return { likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0 };
     }
+    const insightValues = new Map<string, number>();
+    if (body.insights && typeof body.insights === "object" && Array.isArray(body.insights.data)) {
+      for (const item of body.insights.data) {
+        if (item && typeof item.name === "string") {
+          insightValues.set(item.name, Number(item.values?.[0]?.value ?? 0));
+        }
+      }
+    }
     return {
       likes: body.likes?.summary?.total_count ?? body.likes?.data?.length ?? 0,
       comments: body.comments?.summary?.total_count ?? body.comments?.data?.length ?? 0,
       shares: body.shares?.count ?? 0,
-      reach: body.reach ?? 0,
-      impressions: body.impressions ?? 0,
+      reach: insightValues.get("post_total_media_view_unique") ?? 0,
+      impressions: insightValues.get("post_media_view") ?? 0,
     };
   }
 }
@@ -901,8 +912,16 @@ async function captureEngagement(page: Page, windowDays: number) {
 
 async function fetchFacebookMetrics(fbPostId: string, token: string) {
   if (!await isProviderAvailable("facebook")) return null;
+  // Meta deprecated post_impressions (replaced by post_media_view, effective
+  // Nov 15 2025) and post_impressions_unique (replaced by
+  // post_total_media_view_unique, effective Jun 15 2026 -- a very recent
+  // change as of this fix). Both were previously requested in this single
+  // combined insights call; since Meta's Insights API returns a single hard
+  // error for the whole request if any requested metric is invalid, using
+  // either deprecated name here would fail metrics capture entirely, not
+  // just return a stale/zero value for that one field.
   const fields =
-    "shares,comments.summary(true),reactions.summary(true),insights.metric(post_impressions,post_impressions_unique)";
+    "shares,comments.summary(true),reactions.summary(true),insights.metric(post_media_view,post_total_media_view_unique)";
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(fbPostId)}?fields=${encodeURIComponent(fields)}`;
   const response = await fetchWithTimeout(url, {
     timeout: 15_000,
@@ -911,7 +930,11 @@ async function fetchFacebookMetrics(fbPostId: string, token: string) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok || body.error) {
     const errMsg = body.error?.message ?? `Graph API ${response.status}`;
-    await recordProviderFailure("facebook", errMsg);
+    // Record under a separate circuit key from "facebook" (used for
+    // publishing) so a metrics-fetch failure -- e.g. a future metric-name
+    // deprecation like this one -- can no longer trip the circuit breaker
+    // that gates actual post publishing.
+    await recordProviderFailure("facebook_metrics", errMsg);
     return null;
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -938,8 +961,8 @@ async function fetchFacebookMetrics(fbPostId: string, token: string) {
     comments,
     shares,
     reactions: body.reactions?.summary ?? {},
-    reach: insightValues.get("post_impressions_unique") ?? 0,
-    impressions: insightValues.get("post_impressions") ?? 0,
+    reach: insightValues.get("post_total_media_view_unique") ?? 0,
+    impressions: insightValues.get("post_media_view") ?? 0,
   };
 }
 

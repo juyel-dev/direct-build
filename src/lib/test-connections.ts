@@ -88,9 +88,41 @@ export async function testFacebook(token: string, pageId?: string): Promise<Test
     const r = await proxyFetch(url);
     const j = await r.json<{ id?: string; name?: string; error?: { message: string } }>();
     if (j.error) return { ok: false, detail: j.error.message };
-    return { ok: true, detail: `Facebook OK: ${j.name ?? "(no name)"} (${j.id})`, data: j };
+
+    const expiry = await checkTokenExpiry(token);
+    const base = `Facebook OK: ${j.name ?? "(no name)"} (${j.id})`;
+    return { ok: true, detail: expiry ? `${base} — ${expiry}` : base, data: j };
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Checks how long the given token has left via Facebook's debug_token
+ * endpoint (a token can inspect itself as both input_token and
+ * access_token). Returns a short human-readable warning/status string,
+ * or null if the check itself failed (never blocks the main test result
+ * on this — expiry info is a bonus, not a requirement).
+ */
+async function checkTokenExpiry(token: string): Promise<string | null> {
+  try {
+    const url = `https://graph.facebook.com/v21.0/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(token)}`;
+    const r = await proxyFetch(url);
+    const j = await r.json<{ data?: { expires_at?: number; data_access_expires_at?: number } }>();
+    const expiresAt = j.data?.expires_at;
+    if (expiresAt === undefined) return null;
+    if (expiresAt === 0) return "token does not expire (long-lived).";
+
+    const msLeft = expiresAt * 1000 - Date.now();
+    if (msLeft <= 0) return "⚠ this token has already expired.";
+    const hoursLeft = msLeft / 3_600_000;
+    if (hoursLeft < 24) {
+      return `⚠ expires in ~${Math.max(1, Math.round(hoursLeft))}h — this looks like a short-lived token. See Facebook's Access Token Debugger to exchange it for a long-lived one before automation runs.`;
+    }
+    const daysLeft = Math.round(hoursLeft / 24);
+    return `expires in ~${daysLeft} day${daysLeft === 1 ? "" : "s"}.`;
+  } catch {
+    return null;
   }
 }
 

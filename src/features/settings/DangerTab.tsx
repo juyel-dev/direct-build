@@ -5,7 +5,7 @@ import {
   wipeAll, exportBackup, importBackup,
   savePassphraseHint, loadPassphraseHint,
 } from "@/lib/config-store";
-import { invalidateUserSupabase } from "@/lib/user-supabase";
+import { invalidateClient } from "@/services/supabase-factory";
 import { ArrowDownTrayIcon, ArrowUpTrayIcon, TrashIcon, KeyIcon } from "@heroicons/react/24/outline";
 import { useState, useRef, useCallback } from "react";
 import type { BackupDump } from "@/lib/config-store";
@@ -57,7 +57,7 @@ export function DangerTab() {
 
   function reset() {
     wipeAll();
-    invalidateUserSupabase();
+    invalidateClient();
     window.location.reload();
   }
 

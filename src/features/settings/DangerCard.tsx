@@ -2,7 +2,7 @@ import { useState } from "react";
 import { wipeAll } from "@/lib/config-store";
 import { GlassCard } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
-import { invalidateUserSupabase } from "@/lib/user-supabase";
+import { invalidateClient } from "@/services/supabase-factory";
 import { TrashIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 
 export function DangerCard() {
@@ -10,7 +10,7 @@ export function DangerCard() {
 
   function reset() {
     wipeAll();
-    invalidateUserSupabase();
+    invalidateClient();
     window.location.reload();
   }
   function exportJSON() {

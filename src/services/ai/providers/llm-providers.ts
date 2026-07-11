@@ -18,6 +18,7 @@ export function buildLlmConfig(
   apiKey: string,
 ) {
   return {
+    type,
     baseUrl: baseUrl || defaultBaseUrl(type),
     model,
     apiKey,

@@ -116,8 +116,17 @@ export function useCompose(briefId?: string) {
     }
     try {
       setGeneratingImage(true);
+      const pass = getSessionPassphrase();
+      const secrets = pass ? await loadSecrets(pass) : null;
       const ai = new AiService();
-      const url = ai.generatePollinationsUrl(prompt);
+      const url = await ai.generateImage(
+        {
+          provider: providers.image.type,
+          model: providers.image.model || "",
+          apiKey: secrets?.imageApiKey || "",
+        },
+        { prompt },
+      );
       setImageUrl(url);
       toast.success("Image generated!");
     } catch (e) {
@@ -125,7 +134,7 @@ export function useCompose(briefId?: string) {
     } finally {
       setGeneratingImage(false);
     }
-  }, [watch]);
+  }, [watch, providers.image]);
 
   const handleUploadImage = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

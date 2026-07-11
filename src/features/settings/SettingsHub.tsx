@@ -21,7 +21,7 @@ import {
 import { GlassCard } from "@/components/glass/GlassCard";
 import { GlassButton } from "@/components/glass/GlassButton";
 import { GlassInput } from "@/components/glass/GlassInput";
-import { invalidateUserSupabase } from "@/lib/user-supabase";
+import { invalidateClient } from "@/services/supabase-factory";
 import {
   LockClosedIcon,
   CircleStackIcon,
@@ -122,7 +122,7 @@ export function SettingsHub() {
     try {
       await saveSecrets(parsed.data, p);
       setSecrets(parsed.data);
-      invalidateUserSupabase();
+      invalidateClient();
       return { ok: true };
     } catch (e) {
       return { ok: false, err: e instanceof Error ? e.message : String(e) };
