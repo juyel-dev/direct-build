@@ -17,9 +17,13 @@ import {
 } from "@heroicons/react/24/outline";
 import { GlassButton } from "@/components/glass/GlassButton";
 import { cn } from "@/lib/utils";
-import { clearSessionPassphrase, getSessionPassphrase, hasStoredSecrets } from "@/lib/config-store";
+import { clearSessionPassphrase, getSessionPassphrase, hasStoredSecrets, loadInstallStatus } from "@/lib/config-store";
 import { invalidateClient } from "@/services/supabase-factory";
 import { useDraftCount, useAlertCount } from "@/hooks/useAuroraQuery";
+import { MIGRATIONS } from "@/lib/migrations";
+
+const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.id ?? 0;
+const DISMISS_KEY = `aurora-update-banner-dismissed-v${LATEST_SCHEMA_VERSION}`;
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: HomeIcon },
@@ -55,6 +59,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [unlocked, setUnlocked] = useState<boolean>(false);
   const [hasSecrets, setHasSecrets] = useState<boolean>(false);
+  const [showUpdateBanner, setShowUpdateBanner] = useState(false);
   const { theme, toggle } = useTheme();
 
   const draftCountQuery = useDraftCount();
@@ -64,7 +69,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setUnlocked(!!getSessionPassphrase());
-    setHasSecrets(hasStoredSecrets());
+    const secretsPresent = hasStoredSecrets();
+    setHasSecrets(secretsPresent);
+    if (secretsPresent) {
+      const status = loadInstallStatus();
+      const behind = status.schemaVersion < LATEST_SCHEMA_VERSION;
+      const dismissed = sessionStorage.getItem(DISMISS_KEY) === "1";
+      setShowUpdateBanner(behind && !dismissed);
+    } else {
+      setShowUpdateBanner(false);
+    }
   }, [pathname]);
 
   useEffect(() => setOpen(false), [pathname]);
@@ -127,6 +141,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+
+      {showUpdateBanner && (
+        <div className="border-b border-warning/30 bg-warning/10">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-2 text-[12px]">
+            <span className="text-warning">
+              A newer version of Aurora includes database/automation fixes your install hasn't applied yet.
+            </span>
+            <div className="flex items-center gap-3">
+              <Link to="/settings" className="font-medium underline">
+                Go to Settings → Run Setup
+              </Link>
+              <button
+                className="text-muted-foreground"
+                onClick={() => {
+                  sessionStorage.setItem(DISMISS_KEY, "1");
+                  setShowUpdateBanner(false);
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {open && (
         <div className="fixed inset-0 z-50">
