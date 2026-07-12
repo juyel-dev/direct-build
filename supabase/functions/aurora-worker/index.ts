@@ -1,9 +1,17 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.108.1";
+import { CIRCUIT_COOLDOWN_MS, CIRCUIT_THRESHOLD, isFacebookTokenErrorCode, isTerminalJobFailure } from "./_shared.ts";
 
-// ─── Inline types (Deno cannot import from the Bun/Vite project) ──────────
+// ─── Inline types (Deno cannot import TYPES from the Bun/Vite project,
+// since these are erased at compile time and this file is deployed as
+// raw source with no build step) ──────────────────────────────────────
 // These are subsets of src/types/index.ts — update both when fields change.
 // Sync-check: grep for "type Json\|type Page\|type Brief\|type Job" in both
 // files and verify field overlap.
+// Note: runtime values that need to actually agree between the client and
+// this worker (status enums, circuit breaker tuning, token-expiry
+// detection) live in src/shared/aurora-shared.ts instead, and are
+// imported above as a real second file in this function's deploy bundle
+// — not duplicated here.
 type Json = Record<string, unknown>;              // src/types/index.ts:1
 
 type Page = {                                     // src/types/index.ts:3
@@ -106,7 +114,7 @@ class FacebookAdapter implements PlatformAdapter {
     if (!response.ok || result.error) {
       const errorCode = result.error?.code ?? result.error?.error_code;
       const errorText = result.error?.message ?? JSON.stringify(result).slice(0, 200);
-      if (errorCode === 190) {
+      if (isFacebookTokenErrorCode(errorCode)) {
         throw new FacebookTokenError(errorText);
       }
       throw new PublishError(errorText);
@@ -155,8 +163,6 @@ class FacebookAdapter implements PlatformAdapter {
 class FacebookTokenError extends Error { constructor(msg: string) { super(msg); this.name = "FacebookTokenError"; } }
 class PublishError extends Error { constructor(msg: string) { super(msg); this.name = "PublishError"; } }
 const HEARTBEAT_INTERVAL_MS = 30_000;
-const CIRCUIT_COOLDOWN_MS = 300_000;
-const CIRCUIT_THRESHOLD = 3;
 
 const requestId = crypto.randomUUID().slice(0, 8);
 
@@ -425,7 +431,7 @@ async function processJob(job: Job, pages: Page[]) {
     clearInterval(heartbeatTimer);
     const detail = messageOf(error);
     const isTokenExpired = detail.startsWith("TOKEN_EXPIRED:");
-    const terminal = isTokenExpired || job.attempts >= job.max_attempts;
+    const terminal = isTerminalJobFailure(detail, job.attempts, job.max_attempts);
     await completeJob(job, terminal ? "dead_letter" : "failed_retryable", detail);
     log("warn", terminal ? "Job failed terminal" : "Job failed retryable", {
       job_id: job.id, kind: job.kind, attempts: job.attempts, error: detail, token_expired: isTokenExpired,

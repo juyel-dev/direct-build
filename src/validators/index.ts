@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BRIEF_STATUSES } from "../shared/aurora-shared";
 
 export const SupabaseUrlSchema = z
   .string()
@@ -85,9 +86,7 @@ export const ContentBriefSchema = z.object({
   hook: z.string().default(""),
   cta: z.string().default(""),
   prompt_version: z.string().default("unknown"),
-  status: z
-    .enum(["draft", "approved", "scheduled", "publishing", "published", "skipped", "failed"])
-    .default("draft"),
+  status: z.enum(BRIEF_STATUSES).default("draft"),
 });
 
 export const PostSchema = z.object({

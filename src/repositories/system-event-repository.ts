@@ -1,5 +1,6 @@
 import { BaseRepository } from "./base";
 import type { SystemEvent } from "../types";
+import { CIRCUIT_THRESHOLD, CIRCUIT_COOLDOWN_MS } from "../shared/aurora-shared";
 
 export type AlertCount = {
   total: number;
@@ -56,14 +57,14 @@ export class SystemEventRepository extends BaseRepository {
   }
 
   async isCircuitOpen(): Promise<boolean> {
-    const cooldown = new Date(Date.now() - 300_000); // 5 min cooldown
+    const cooldown = new Date(Date.now() - CIRCUIT_COOLDOWN_MS);
     const { count, error } = await this.client
       .from("system_events")
       .select("id", { count: "exact", head: true })
       .like("category", "circuit_%")
       .gte("created_at", cooldown.toISOString());
     if (error) this.handleError(error, "events.isCircuitOpen");
-    return (count ?? 0) >= 3;
+    return (count ?? 0) >= CIRCUIT_THRESHOLD;
   }
 
   async findAlerts(since: Date): Promise<SystemEvent[]> {

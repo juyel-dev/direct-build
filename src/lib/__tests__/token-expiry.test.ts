@@ -1,46 +1,30 @@
 import { describe, it, expect } from "vitest";
+import { isFacebookTokenErrorCode, isTerminalJobFailure } from "../../shared/aurora-shared";
 
 describe("Facebook token expiry detection logic", () => {
-  function detectTokenExpiry(result: { error?: { code?: number; message?: string } }): boolean {
-    return result.error?.code === 190;
-  }
-
   it("detects OAuthException with code 190", () => {
-    const fbResponse = {
-      error: {
-        code: 190,
-        message: "Error validating access token: Session has expired",
-      },
-    };
-    expect(detectTokenExpiry(fbResponse)).toBe(true);
+    expect(isFacebookTokenErrorCode(190)).toBe(true);
   });
 
   it("does not flag non-token errors as expiry", () => {
-    const fbResponse = {
-      error: {
-        code: 100,
-        message: "Invalid parameter",
-      },
-    };
-    expect(detectTokenExpiry(fbResponse)).toBe(false);
+    expect(isFacebookTokenErrorCode(100)).toBe(false);
   });
 
-  it("handles missing error object gracefully", () => {
-    expect(detectTokenExpiry({})).toBe(false);
-    expect(detectTokenExpiry({ error: {} })).toBe(false);
+  it("handles missing error code gracefully", () => {
+    expect(isFacebookTokenErrorCode(undefined)).toBe(false);
+    expect(isFacebookTokenErrorCode(null)).toBe(false);
   });
 
-  it("marks job terminal on token expiry", () => {
+  it("marks job terminal on token expiry, even on the first attempt", () => {
     const detail = "TOKEN_EXPIRED: Facebook token expired. Update in Settings.";
-    const job = { attempts: 0, max_attempts: 10 };
-    const terminal = detail.startsWith("TOKEN_EXPIRED:") || job.attempts >= job.max_attempts;
-    expect(terminal).toBe(true);
+    expect(isTerminalJobFailure(detail, 0, 10)).toBe(true);
   });
 
-  it("does not mark terminal for non-token errors on first attempt", () => {
-    const detail = "Some transient error";
-    const job = { attempts: 0, max_attempts: 10 };
-    const terminal = detail.startsWith("TOKEN_EXPIRED:") || job.attempts >= job.max_attempts;
-    expect(terminal).toBe(false);
+  it("marks job terminal once attempts reach max_attempts", () => {
+    expect(isTerminalJobFailure("Some transient error", 10, 10)).toBe(true);
+  });
+
+  it("does not mark terminal for a non-token, non-exhausted error", () => {
+    expect(isTerminalJobFailure("Some transient error", 0, 10)).toBe(false);
   });
 });

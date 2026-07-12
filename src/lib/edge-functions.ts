@@ -1,5 +1,6 @@
 import auroraWorkerSource from "../../supabase/functions/aurora-worker/index.ts?raw";
 import manageSetupSource from "../../supabase/functions/manage-setup/index.ts?raw";
+import auroraSharedSource from "../shared/aurora-shared.ts?raw";
 
 export interface EdgeFunctionFile {
   name: string;
@@ -19,7 +20,10 @@ export const AURORA_WORKER_FUNCTION: EdgeFunctionBundle = {
   name: "Aurora Worker",
   entrypointPath: "index.ts",
   verifyJwt: false,
-  files: [{ name: "index.ts", content: auroraWorkerSource }],
+  files: [
+    { name: "index.ts", content: auroraWorkerSource },
+    { name: "_shared.ts", content: auroraSharedSource },
+  ],
 };
 
 export const MANAGE_SETUP_FUNCTION: EdgeFunctionBundle = {

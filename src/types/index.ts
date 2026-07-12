@@ -1,3 +1,5 @@
+import type { BriefStatusShared } from "../shared/aurora-shared";
+
 export type Json = Record<string, unknown>;
 
 export type Page = {
@@ -39,7 +41,7 @@ export type Brief = {
   updated_at: string;
 };
 
-export type BriefStatus = "draft" | "approved" | "scheduled" | "publishing" | "published" | "skipped" | "failed";
+export type BriefStatus = BriefStatusShared;
 
 export type Post = {
   id: string;
