@@ -28,11 +28,16 @@ import {
   messageOf,
   json,
   event,
+  loadActivePages,
 } from "./_core.ts";
 import { FacebookAdapter, FacebookTokenError, PublishError, type PlatformAdapter } from "./_facebook-adapter.ts";
-import { CIRCUIT_COOLDOWN_MS, CIRCUIT_THRESHOLD, isFacebookTokenErrorCode, isTerminalJobFailure } from "./_shared.ts";
-
-const HEARTBEAT_INTERVAL_MS = 30_000;
+import {
+  heartbeat,
+  isProviderAvailable,
+  recordProviderFailure,
+  HEARTBEAT_INTERVAL_MS,
+} from "./_lifecycle.ts";
+import { isFacebookTokenErrorCode, isTerminalJobFailure } from "./_shared.ts";
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: { ...corsHeaders, "x-content-type-options": "nosniff", "x-frame-options": "DENY", "referrer-policy": "strict-origin-when-cross-origin" } });
@@ -84,61 +89,6 @@ Deno.serve(async (request) => {
     return json({ error: msg }, 500);
   }
 });
-
-async function loadActivePages(): Promise<Page[]> {
-  const { data, error } = await supabase
-    .from("pages")
-    .select(
-      "id, fb_page_id, fb_page_name, default_brand_voice, default_posting_windows, posting_mode, max_posts_per_day, prompt_overrides, status",
-    )
-    .eq("status", "active");
-  if (error) throw error;
-  return (data ?? []) as Page[];
-}
-
-/* ─── Heartbeat ────────────────────────────────────────────── */
-
-async function heartbeat(jobId: string) {
-  const { error } = await supabase
-    .from("jobs")
-    .update({ lease_expires_at: new Date(Date.now() + 120_000).toISOString() })
-    .eq("id", jobId)
-    .eq("status", "processing");
-  if (error) log("warn", "Heartbeat failed", { job_id: jobId, error: messageOf(error) });
-}
-
-/* ─── Circuit breaker ──────────────────────────────────────── */
-
-async function isProviderAvailable(provider: string): Promise<boolean> {
-  const since = new Date(Date.now() - CIRCUIT_COOLDOWN_MS).toISOString();
-  const { data, error } = await supabase
-    .from("system_events")
-    .select("id")
-    .eq("category", `circuit_${provider}`)
-    .eq("severity", "error")
-    .gte("created_at", since)
-    .limit(CIRCUIT_THRESHOLD);
-  if (error) {
-    log("warn", "Circuit check query failed", { provider, error: messageOf(error) });
-    return true;
-  }
-  const recent = (data ?? []).length;
-  if (recent >= CIRCUIT_THRESHOLD) {
-    log("warn", "Circuit open — provider in cooldown", { provider, recent_failures: recent });
-    return false;
-  }
-  return true;
-}
-
-async function recordProviderFailure(provider: string, detail: string) {
-  log("warn", "Provider failure recorded", { provider, detail });
-  await supabase.from("system_events").insert({
-    severity: "error",
-    category: `circuit_${provider}`,
-    message: detail.slice(0, 500),
-    metadata: { provider },
-  });
-}
 
 /* ─── Job processing ────────────────────────────────────────── */
 

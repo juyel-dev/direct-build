@@ -159,3 +159,14 @@ export async function event(
 ) {
   await supabase.from("system_events").insert({ severity, category, message, metadata });
 }
+
+export async function loadActivePages(): Promise<Page[]> {
+  const { data, error } = await supabase
+    .from("pages")
+    .select(
+      "id, fb_page_id, fb_page_name, default_brand_voice, default_posting_windows, posting_mode, max_posts_per_day, prompt_overrides, status",
+    )
+    .eq("status", "active");
+  if (error) throw error;
+  return (data ?? []) as Page[];
+}
