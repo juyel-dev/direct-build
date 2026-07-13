@@ -2,6 +2,7 @@ import auroraWorkerSource from "../../supabase/functions/aurora-worker/index.ts?
 import auroraWorkerCoreSource from "../../supabase/functions/aurora-worker/_core.ts?raw";
 import auroraWorkerFacebookAdapterSource from "../../supabase/functions/aurora-worker/_facebook-adapter.ts?raw";
 import auroraWorkerLifecycleSource from "../../supabase/functions/aurora-worker/_lifecycle.ts?raw";
+import auroraWorkerAiUsageSource from "../../supabase/functions/aurora-worker/_ai-usage.ts?raw";
 import manageSetupSource from "../../supabase/functions/manage-setup/index.ts?raw";
 import auroraSharedSource from "../shared/aurora-shared.ts?raw";
 
@@ -28,6 +29,7 @@ export const AURORA_WORKER_FUNCTION: EdgeFunctionBundle = {
     { name: "_core.ts", content: auroraWorkerCoreSource },
     { name: "_facebook-adapter.ts", content: auroraWorkerFacebookAdapterSource },
     { name: "_lifecycle.ts", content: auroraWorkerLifecycleSource },
+    { name: "_ai-usage.ts", content: auroraWorkerAiUsageSource },
     { name: "_shared.ts", content: auroraSharedSource },
   ],
 };
