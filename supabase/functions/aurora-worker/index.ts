@@ -1,238 +1,38 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.108.1";
+import {
+  type Json,
+  type Page,
+  type Brief,
+  type Job,
+  GRAPH_VERSION,
+  WORKER_NAME,
+  corsHeaders,
+  requiredEnv,
+  supabase,
+  CRON_SECRET,
+  AI_API_KEY,
+  LLM_PROVIDER,
+  LLM_MODEL,
+  LLM_BASE_URL,
+  FALLBACK_LLM_MODEL,
+  IMAGE_PROVIDER,
+  IMAGE_MODEL,
+  IMAGE_API_KEY,
+  IMAGE_STORAGE_BUCKET,
+  PAGE_TOKEN,
+  PROMPT_VERSION,
+  STRATEGY_VERSION,
+  WORKER_TIMEOUT_MS,
+  log,
+  fetchWithTimeout,
+  runWithTimeout,
+  messageOf,
+  json,
+  event,
+} from "./_core.ts";
+import { FacebookAdapter, FacebookTokenError, PublishError, type PlatformAdapter } from "./_facebook-adapter.ts";
 import { CIRCUIT_COOLDOWN_MS, CIRCUIT_THRESHOLD, isFacebookTokenErrorCode, isTerminalJobFailure } from "./_shared.ts";
 
-// ─── Inline types (Deno cannot import TYPES from the Bun/Vite project,
-// since these are erased at compile time and this file is deployed as
-// raw source with no build step) ──────────────────────────────────────
-// These are subsets of src/types/index.ts — update both when fields change.
-// Sync-check: grep for "type Json\|type Page\|type Brief\|type Job" in both
-// files and verify field overlap.
-// Note: runtime values that need to actually agree between the client and
-// this worker (status enums, circuit breaker tuning, token-expiry
-// detection) live in src/shared/aurora-shared.ts instead, and are
-// imported above as a real second file in this function's deploy bundle
-// — not duplicated here.
-type Json = Record<string, unknown>;              // src/types/index.ts:1
-
-type Page = {                                     // src/types/index.ts:3
-  id: string;
-  fb_page_id: string | null;
-  fb_page_name: string;
-  default_brand_voice: string | null;
-  default_posting_windows: { hour: number; minute: number }[] | null;
-  posting_mode: "manual" | "hybrid" | "full_auto";
-  max_posts_per_day: number;
-  prompt_overrides: Json | null;
-};
-
-type Brief = {                                    // src/types/index.ts:21
-  id: string;
-  page_id: string;
-  slot_start: string;
-  topic: string | null;
-  caption: string | null;
-  hashtags: string[] | null;
-  image_prompt: string | null;
-  image_url: string | null;
-  storage_image_path: string | null;
-  image_stored_at: string | null;
-  storage_image_pinned: boolean;
-  status: string;
-};
-
-type Job = {                                      // src/types/index.ts:84
-  id: string;
-  page_id: string | null;
-  kind: string;
-  payload: Json;
-  attempts: number;
-  max_attempts: number;
-};
-
-const GRAPH_VERSION = "v21.0";
-const WORKER_NAME = "aurora-worker";
-
-// ─── Platform Adapter Interface ─────────────────────────────
-// Extracted so the Growth Intelligence engine stays independent
-// from Facebook-specific publishing. New platforms implement
-// the same interface.
-interface PlatformAdapter {
-  validateToken(token: string): Promise<{ valid: boolean; error?: string }>;
-  publishPost(
-    page: Page,
-    brief: Brief,
-    token: string,
-    caption: string,
-  ): Promise<{ fbPostId: string | null; permalink: string | null }>;
-  fetchMetrics(
-    fbPostId: string,
-    token: string,
-  ): Promise<{ likes: number; comments: number; shares: number; reach: number; impressions: number }>;
-}
-
-class FacebookAdapter implements PlatformAdapter {
-  private baseUrl = `https://graph.facebook.com/${GRAPH_VERSION}`;
-
-  async validateToken(token: string): Promise<{ valid: boolean; error?: string }> {
-    const url = `${this.baseUrl}/me?fields=id`;
-    const response = await fetchWithTimeout(url, {
-      timeout: 10_000,
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok || body.error) {
-      const code = body.error?.code ?? body.error?.error_code;
-      const msg = body.error?.message ?? `HTTP ${response.status}`;
-      if (code === 190 || code === 102 || response.status === 401) {
-        return { valid: false, error: `Token expired or invalid: ${msg.slice(0, 120)}` };
-      }
-      return { valid: false, error: msg.slice(0, 120) };
-    }
-    return { valid: true };
-  }
-
-  async publishPost(
-    page: Page,
-    brief: Brief,
-    token: string,
-    caption: string,
-  ): Promise<{ fbPostId: string | null; permalink: string | null }> {
-    const endpoint = brief.image_url
-      ? `${this.baseUrl}/${encodeURIComponent(page.fb_page_id ?? "")}/photos`
-      : `${this.baseUrl}/${encodeURIComponent(page.fb_page_id ?? "")}/feed`;
-    const body = new URLSearchParams();
-    body.set("access_token", token);
-    if (brief.image_url) {
-      body.set("url", brief.image_url);
-      body.set("caption", caption);
-      body.set("published", "true");
-    } else {
-      body.set("message", caption);
-    }
-    const response = await fetchWithTimeout(endpoint, { method: "POST", body, timeout: 15_000 });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok || result.error) {
-      const errorCode = result.error?.code ?? result.error?.error_code;
-      const errorText = result.error?.message ?? JSON.stringify(result).slice(0, 200);
-      if (isFacebookTokenErrorCode(errorCode)) {
-        throw new FacebookTokenError(errorText);
-      }
-      throw new PublishError(errorText);
-    }
-    const fbPostId = result.post_id ?? result.id;
-    const permalink = fbPostId ? `https://www.facebook.com/${fbPostId}` : null;
-    return { fbPostId, permalink };
-  }
-
-  async fetchMetrics(
-    fbPostId: string,
-    token: string,
-  ): Promise<{ likes: number; comments: number; shares: number; reach: number; impressions: number }> {
-    // See fetchFacebookMetrics() below for why insights.metric(...) with
-    // post_media_view/post_total_media_view_unique is used instead of the
-    // deprecated bare reach/impressions fields.
-    const fields = "likes.summary(true),comments.summary(true),shares,insights.metric(post_media_view,post_total_media_view_unique)";
-    const url = `${this.baseUrl}/${encodeURIComponent(fbPostId)}?fields=${encodeURIComponent(fields)}`;
-    const response = await fetchWithTimeout(url, {
-      timeout: 10_000,
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok || body.error) {
-      log("warn", "facebook_metrics_fetch_failed", { fbPostId, error: body.error?.message ?? `HTTP ${response.status}` });
-      return { likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0 };
-    }
-    const insightValues = new Map<string, number>();
-    if (body.insights && typeof body.insights === "object" && Array.isArray(body.insights.data)) {
-      for (const item of body.insights.data) {
-        if (item && typeof item.name === "string") {
-          insightValues.set(item.name, Number(item.values?.[0]?.value ?? 0));
-        }
-      }
-    }
-    return {
-      likes: body.likes?.summary?.total_count ?? body.likes?.data?.length ?? 0,
-      comments: body.comments?.summary?.total_count ?? body.comments?.data?.length ?? 0,
-      shares: body.shares?.count ?? 0,
-      reach: insightValues.get("post_total_media_view_unique") ?? 0,
-      impressions: insightValues.get("post_media_view") ?? 0,
-    };
-  }
-}
-
-class FacebookTokenError extends Error { constructor(msg: string) { super(msg); this.name = "FacebookTokenError"; } }
-class PublishError extends Error { constructor(msg: string) { super(msg); this.name = "PublishError"; } }
 const HEARTBEAT_INTERVAL_MS = 30_000;
-
-const requestId = crypto.randomUUID().slice(0, 8);
-
-function log(level: string, message: string, data: Record<string, unknown> = {}) {
-  console.log(JSON.stringify({
-    t: new Date().toISOString(),
-    l: level,
-    w: WORKER_NAME,
-    rid: requestId,
-    msg: message,
-    ...data,
-  }));
-}
-
-async function fetchWithTimeout(
-  url: string,
-  options: RequestInit & { timeout?: number } = {},
-) {
-  const { timeout = 30_000, ...fetchOpts } = options;
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-  try {
-    const response = await fetch(url, { ...fetchOpts, signal: controller.signal });
-    return response;
-  } finally {
-    clearTimeout(id);
-  }
-}
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-automation-secret",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-const supabaseUrl = requiredEnv("FBAI_SUPABASE_URL", "SUPABASE_URL");
-const serviceKey = requiredEnv("FBAI_SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SERVICE_ROLE_KEY");
-const supabase = createClient(supabaseUrl, serviceKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
-
-// Hoist all env reads to module scope — read once per warm invocation
-const CRON_SECRET = Deno.env.get("FBAI_CRON_SECRET");
-const AI_API_KEY = Deno.env.get("FBAI_AI_API_KEY");
-const LLM_PROVIDER = Deno.env.get("FBAI_LLM_PROVIDER") ?? "openrouter";
-const LLM_MODEL = Deno.env.get("FBAI_LLM_MODEL") ?? "meta-llama/llama-3.3-70b-instruct:free";
-const LLM_BASE_URL = Deno.env.get("FBAI_LLM_BASE_URL") || "";
-const FALLBACK_LLM_MODEL = Deno.env.get("FBAI_FALLBACK_LLM_MODEL");
-const IMAGE_PROVIDER = Deno.env.get("FBAI_IMAGE_PROVIDER") ?? "pollinations";
-const IMAGE_MODEL = Deno.env.get("FBAI_IMAGE_MODEL") ?? "flux";
-const IMAGE_API_KEY = Deno.env.get("FBAI_IMAGE_API_KEY");
-const IMAGE_STORAGE_BUCKET = Deno.env.get("FBAI_IMAGE_STORAGE_BUCKET") || "generated-images";
-const PAGE_TOKEN = Deno.env.get("FBAI_FB_PAGE_TOKEN");
-
-const PROMPT_VERSION = "2026-07-03-v1";
-const STRATEGY_VERSION = "1.0.0";
-
-const WORKER_TIMEOUT_MS = 50_000;
-
-async function runWithTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: number | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Worker timed out after ${timeoutMs}ms`)), timeoutMs);
-  });
-  try {
-    return await Promise.race([fn(), timeout]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: { ...corsHeaders, "x-content-type-options": "nosniff", "x-frame-options": "DENY", "referrer-policy": "strict-origin-when-cross-origin" } });
@@ -1834,10 +1634,6 @@ async function logUsage(pageId: string, jobId: string | null, provider: string, 
   });
 }
 
-async function event(severity: string, category: string, message: string, metadata: Json = {}) {
-  await supabase.from("system_events").insert({ severity, category, message, metadata });
-}
-
 function normalizedWindows(page: Page) {
   const windows =
     Array.isArray(page.default_posting_windows) && page.default_posting_windows.length
@@ -1918,33 +1714,8 @@ function topEntry<T>(scores: Map<T, number>) {
   return Array.from(scores.entries()).sort((a, b) => b[1] - a[1])[0];
 }
 
-function requiredEnv(...names: string[]) {
-  for (const name of names) {
-    const value = Deno.env.get(name);
-    if (value) return value;
-  }
-  throw new Error(`Missing required env var: ${names.join(" or ")}`);
-}
-
 function extractJson(value: string) {
   const first = value.indexOf("{");
   const last = value.lastIndexOf("}");
   return first >= 0 && last > first ? value.slice(first, last + 1) : value;
-}
-
-function messageOf(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...corsHeaders,
-      "content-type": "application/json",
-      "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
-      "referrer-policy": "strict-origin-when-cross-origin",
-    },
-  });
 }

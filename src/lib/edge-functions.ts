@@ -1,4 +1,6 @@
 import auroraWorkerSource from "../../supabase/functions/aurora-worker/index.ts?raw";
+import auroraWorkerCoreSource from "../../supabase/functions/aurora-worker/_core.ts?raw";
+import auroraWorkerFacebookAdapterSource from "../../supabase/functions/aurora-worker/_facebook-adapter.ts?raw";
 import manageSetupSource from "../../supabase/functions/manage-setup/index.ts?raw";
 import auroraSharedSource from "../shared/aurora-shared.ts?raw";
 
@@ -22,6 +24,8 @@ export const AURORA_WORKER_FUNCTION: EdgeFunctionBundle = {
   verifyJwt: false,
   files: [
     { name: "index.ts", content: auroraWorkerSource },
+    { name: "_core.ts", content: auroraWorkerCoreSource },
+    { name: "_facebook-adapter.ts", content: auroraWorkerFacebookAdapterSource },
     { name: "_shared.ts", content: auroraSharedSource },
   ],
 };
