@@ -170,3 +170,92 @@ export async function loadActivePages(): Promise<Page[]> {
   if (error) throw error;
   return (data ?? []) as Page[];
 }
+
+export function defaultLlmBaseUrl(provider: string) {
+  if (provider === "openai") return "https://api.openai.com/v1";
+  if (provider === "anthropic") return "https://api.anthropic.com/v1";
+  if (provider === "openrouter") return "https://openrouter.ai/api/v1";
+  if (provider === "nvidia") return "https://integrate.api.nvidia.com/v1";
+  if (provider === "groq") return "https://api.groq.com/openai/v1";
+  return "";
+}
+
+export type PostWithEngagement = {
+  published_at: string | null;
+  engagement_snapshots: Array<{
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    captured_at?: string;
+  }> | null;
+  content_briefs: {
+    topic?: string | null;
+    caption?: string | null;
+    predicted_engagement_score?: number | null;
+  } | null;
+};
+
+export async function loadPostHistoryWithEngagement(
+  pageId: string,
+  windowDays: number,
+): Promise<PostWithEngagement[]> {
+  const since = new Date(Date.now() - windowDays * 86400_000).toISOString();
+  const { data, error } = await supabase
+    .from("posts")
+    .select(
+      "published_at, engagement_snapshots(likes, comments, shares, captured_at), content_briefs(topic, caption, predicted_engagement_score)",
+    )
+    .eq("page_id", pageId)
+    .eq("status", "published")
+    .gte("published_at", since)
+    .order("published_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as PostWithEngagement[];
+}
+
+export async function loadInsights(pageId: string) {
+  const { data } = await supabase
+    .from("strategy_insights")
+    .select("best_posting_hour, best_topics, avg_engagement_rate, computed_at")
+    .eq("page_id", pageId)
+    .eq("window_days", 30)
+    .maybeSingle();
+  return data ?? {};
+}
+
+// src/types/index.ts:156 (BrandMemory)
+export type BrandMemoryRow = {
+  brand_descriptors: string[];
+  audience_profile: Json;
+  writing_style_notes: string;
+  effective_hashtags: string[];
+  top_content_snippets: Json[];
+  tone_guidelines: string;
+  avoided_topics: string[];
+  best_posting_days: string[];
+  caption_length_avg: number | null;
+  emoji_usage: string[];
+  cta_frequency: string;
+  media_usage_ratio: number | null;
+  hashtag_count_avg: number | null;
+  brand_personality?: string;
+  content_pillars?: string[];
+  storytelling_style?: string;
+  strengths_weaknesses?: Json;
+  llm_analyzed_at?: string | null;
+};
+
+export async function loadBrandMemory(pageId: string): Promise<BrandMemoryRow | null> {
+  const { data, error } = await supabase
+    .from("brand_memory")
+    .select(
+      "brand_descriptors, audience_profile, writing_style_notes, effective_hashtags, top_content_snippets, tone_guidelines, avoided_topics, brand_personality, content_pillars, storytelling_style, strengths_weaknesses, llm_analyzed_at",
+    )
+    .eq("page_id", pageId)
+    .maybeSingle();
+  if (error) {
+    log("warn", "Brand memory load failed", { page_id: pageId, error: messageOf(error) });
+    return null;
+  }
+  return data as BrandMemoryRow | null;
+}
