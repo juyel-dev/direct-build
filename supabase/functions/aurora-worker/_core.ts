@@ -259,3 +259,35 @@ export async function loadBrandMemory(pageId: string): Promise<BrandMemoryRow | 
   }
   return data as BrandMemoryRow | null;
 }
+
+// Mirrors src/services/strategy.service.ts computeQualityFeedback
+// Keep both copies in sync when making changes
+export function computeQualityFeedback(posts: PostWithEngagement[]): string {
+  const byTopic = new Map<string, { predicted: number[]; actual: number[]; count: number }>();
+  for (const p of posts) {
+    const brief = p.content_briefs;
+    if (!brief || !brief.topic) continue;
+    const predicted = brief.predicted_engagement_score;
+    if (predicted == null) continue;
+    const snaps = p.engagement_snapshots ?? [];
+    const latest = snaps[snaps.length - 1] ?? {};
+    const actual = (latest.likes ?? 0) + (latest.comments ?? 0) * 2 + (latest.shares ?? 0) * 3;
+    const entry = byTopic.get(brief.topic) ?? { predicted: [], actual: [], count: 0 };
+    entry.predicted.push(predicted);
+    entry.actual.push(actual);
+    entry.count++;
+    byTopic.set(brief.topic, entry);
+  }
+  const lines: string[] = [];
+  for (const [topic, data] of byTopic) {
+    if (data.count < 2) continue;
+    const avgPred = data.predicted.reduce((a, b) => a + b, 0) / data.predicted.length;
+    const avgAct = data.actual.reduce((a, b) => a + b, 0) / data.actual.length;
+    const delta = avgAct - avgPred;
+    const sign = delta >= 0 ? "+" : "";
+    lines.push(
+      `- ${topic}: predicted ${avgPred.toFixed(1)}, actual ${avgAct.toFixed(1)} (${sign}${delta.toFixed(1)} delta)`,
+    );
+  }
+  return lines.length ? `Quality feedback (predicted vs actual):\n${lines.join("\n")}` : "";
+}

@@ -5,6 +5,7 @@ import auroraWorkerLifecycleSource from "../../supabase/functions/aurora-worker/
 import auroraWorkerAiUsageSource from "../../supabase/functions/aurora-worker/_ai-usage.ts?raw";
 import auroraWorkerAnalyticsSource from "../../supabase/functions/aurora-worker/_analytics.ts?raw";
 import auroraWorkerBrandMemorySource from "../../supabase/functions/aurora-worker/_brand-memory.ts?raw";
+import auroraWorkerContentGenSource from "../../supabase/functions/aurora-worker/_content-generation.ts?raw";
 import manageSetupSource from "../../supabase/functions/manage-setup/index.ts?raw";
 import auroraSharedSource from "../shared/aurora-shared.ts?raw";
 
@@ -34,6 +35,7 @@ export const AURORA_WORKER_FUNCTION: EdgeFunctionBundle = {
     { name: "_ai-usage.ts", content: auroraWorkerAiUsageSource },
     { name: "_analytics.ts", content: auroraWorkerAnalyticsSource },
     { name: "_brand-memory.ts", content: auroraWorkerBrandMemorySource },
+    { name: "_content-generation.ts", content: auroraWorkerContentGenSource },
     { name: "_shared.ts", content: auroraSharedSource },
   ],
 };
