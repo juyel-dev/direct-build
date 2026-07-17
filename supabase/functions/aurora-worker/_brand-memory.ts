@@ -318,15 +318,7 @@ export async function analyzeBrandLlm(page: Page) {
 }
 
 export async function parseAndStoreBrandLlm(pageId: string, body: string): Promise<string> {
-  // NOTE (pre-existing, not introduced by this extraction): this type
-  // annotation says the choices live under a nested `.data` property,
-  // but the code below accesses `parsed?.choices` directly. This looks
-  // like a stale/incorrect type annotation rather than a real runtime
-  // bug -- JS ignores TS types at runtime, and a raw OpenAI-compatible
-  // chat completion response is shaped as { choices: [...] }, matching
-  // what the code actually reads. Worth a follow-up pass to fix the
-  // annotation, not touched here since it doesn't affect behavior.
-  let parsed: { data?: { choices?: { message?: { content?: string } }[] } };
+  let parsed: { choices?: { message?: { content?: string } }[] };
   try {
     parsed = JSON.parse(body);
   } catch {

@@ -89,7 +89,7 @@ type StrategyRec = {
   recommendation_text: string;
   reasoning: string;
   priority: number;
-  related_content: Array<{ type: string; text: string }>;
+  related_content?: Array<{ type: string; text: string }>;
 };
 
 function normalizeStrategyRecs(raw: unknown[]): StrategyRec[] {
@@ -235,11 +235,7 @@ async function callLlmForStrategy(
     await recordProviderFailure("llm", `Strategy LLM ${response.status}: ${body.slice(0, 240)}`);
     throw new Error(`Strategy LLM call failed (${response.status}): ${body.slice(0, 240)}`);
   }
-  // NOTE (pre-existing, not introduced by this extraction): same stale
-  // type annotation vs actual access pattern mismatch as in
-  // _brand-memory.ts's parseAndStoreBrandLlm -- see the note there.
-  // Preserved as-is; a follow-up pass should fix both together.
-  let parsed: { data?: { choices?: { message?: { content?: string } }[] } };
+  let parsed: { choices?: { message?: { content?: string } }[] };
   try {
     parsed = JSON.parse(body);
   } catch {
