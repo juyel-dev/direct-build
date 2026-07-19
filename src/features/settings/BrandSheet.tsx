@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type Brand } from "@/lib/config-store";
 import { GlassInput, GlassTextarea } from "@/components/glass/GlassInput";
 import { GlassButton } from "@/components/glass/GlassButton";
 import { BottomSheet } from "@/components/glass/BottomSheet";
 import { PlusIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Field, SaveBar } from "./shared";
+import { createUserClient } from "@/services/supabase-factory";
+import { toast } from "sonner";
 
 export function BrandSheet({
   open,
@@ -20,11 +22,13 @@ export function BrandSheet({
   const [draft, setDraft] = useState(brand);
   const [topicDraft, setTopicDraft] = useState("");
   const [saved, setSaved] = useState(false);
+  const prevInterval = useRef(brand.workerIntervalMinutes);
 
   useEffect(() => {
     if (open) {
       setDraft(brand);
       setSaved(false);
+      prevInterval.current = brand.workerIntervalMinutes;
     }
   }, [open, brand]);
 
@@ -42,10 +46,23 @@ export function BrandSheet({
       title="Brand voice & schedule"
       footer={
         <SaveBar
-          onSave={() => {
+          onSave={async () => {
             save(draft);
             setSaved(true);
             setTimeout(() => setSaved(false), 1400);
+            if (draft.workerIntervalMinutes !== prevInterval.current) {
+              const newInterval = draft.workerIntervalMinutes;
+              prevInterval.current = newInterval;
+              try {
+                const sb = await createUserClient();
+                if (sb) {
+                  await sb.rpc("update_worker_cron_interval", { p_interval_minutes: newInterval });
+                  toast.success(`Worker rescheduled to every ${newInterval} min`);
+                }
+              } catch {
+                toast.info("Re-run Setup to apply the new interval.");
+              }
+            }
           }}
           onClose={onClose}
           saved={saved}
@@ -140,6 +157,29 @@ export function BrandSheet({
               })
             }
           />
+        </Field>
+        <Field label="Worker interval">
+          <select
+            value={draft.workerIntervalMinutes}
+            onChange={(e) => setDraft({ ...draft, workerIntervalMinutes: Number(e.target.value) })}
+            className="glass-input w-full h-11 rounded-xl px-3 text-sm focus:outline-none focus:glass-input-focus"
+          >
+            <option value={1} className="bg-background">
+              Every 1 minute
+            </option>
+            <option value={5} className="bg-background">
+              Every 5 minutes
+            </option>
+            <option value={10} className="bg-background">
+              Every 10 minutes
+            </option>
+            <option value={15} className="bg-background">
+              Every 15 minutes
+            </option>
+          </select>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Higher intervals reduce AI/compute costs. Applies immediately on save.
+          </p>
         </Field>
       </div>
     </BottomSheet>
