@@ -3,6 +3,7 @@ import { getProject, listBuckets } from "./management-api";
 import { proxyFetch } from "./proxy-fetch";
 import { projectRefFromUrl } from "./config-store";
 import { classifySupabaseKey, isJwtSupabaseKey, supabaseAuthHeaders } from "./supabase-keys";
+import { DEFAULT_GRAPH_VERSION } from "../shared/aurora-shared";
 
 export interface TestResult {
   ok: boolean;
@@ -83,8 +84,8 @@ export async function testFacebook(token: string, pageId?: string): Promise<Test
   if (!token) return { ok: false, detail: "No token provided." };
   try {
     const url = pageId
-      ? `https://graph.facebook.com/v21.0/${encodeURIComponent(pageId)}?fields=id,name,category&access_token=${encodeURIComponent(token)}`
-      : `https://graph.facebook.com/v21.0/me?fields=id,name&access_token=${encodeURIComponent(token)}`;
+      ? `https://graph.facebook.com/${DEFAULT_GRAPH_VERSION}/${encodeURIComponent(pageId)}?fields=id,name,category&access_token=${encodeURIComponent(token)}`
+      : `https://graph.facebook.com/${DEFAULT_GRAPH_VERSION}/me?fields=id,name&access_token=${encodeURIComponent(token)}`;
     const r = await proxyFetch(url);
     const j = await r.json<{ id?: string; name?: string; error?: { message: string } }>();
     if (j.error) return { ok: false, detail: j.error.message };
@@ -106,7 +107,7 @@ export async function testFacebook(token: string, pageId?: string): Promise<Test
  */
 async function checkTokenExpiry(token: string): Promise<string | null> {
   try {
-    const url = `https://graph.facebook.com/v21.0/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(token)}`;
+    const url = `https://graph.facebook.com/${DEFAULT_GRAPH_VERSION}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(token)}`;
     const r = await proxyFetch(url);
     const j = await r.json<{ data?: { expires_at?: number; data_access_expires_at?: number } }>();
     const expiresAt = j.data?.expires_at;

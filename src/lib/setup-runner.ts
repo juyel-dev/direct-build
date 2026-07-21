@@ -6,6 +6,7 @@ import {
 import { AURORA_WORKER_FUNCTION, MANAGE_SETUP_FUNCTION } from "./edge-functions";
 import { listBucketsViaEdgeFn, createBucketViaEdgeFn } from "./manage-setup-client";
 import { MIGRATIONS } from "./migrations";
+import { DEFAULT_GRAPH_VERSION } from "../shared/aurora-shared";
 import {
   loadInstallStatus,
   projectRefFromUrl,
@@ -102,9 +103,12 @@ export async function runSetup(
       if (!secrets.facebookPageId || !secrets.facebookPageToken) {
         return "Skipped — no Facebook page configured yet.";
       }
-      const r = await proxyFetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(secrets.facebookPageId)}`, {
-        headers: { Authorization: `Bearer ${secrets.facebookPageToken}` },
-      });
+      const r = await proxyFetch(
+        `https://graph.facebook.com/${DEFAULT_GRAPH_VERSION}/${encodeURIComponent(secrets.facebookPageId)}`,
+        {
+          headers: { Authorization: `Bearer ${secrets.facebookPageToken}` },
+        },
+      );
       const j = await r.json<{ id?: string; name?: string; error?: { message: string } }>();
       if (j.error) throw new Error(j.error.message);
       await runSql(

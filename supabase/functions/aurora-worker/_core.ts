@@ -10,6 +10,7 @@
  * logger, or env config.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.108.1";
+import { DEFAULT_GRAPH_VERSION } from "./_shared.ts";
 
 // ─── Shared value types (see src/shared/aurora-shared.ts for the
 // canonical status enum and circuit breaker tuning; the structural
@@ -51,7 +52,7 @@ export type Job = {
   max_attempts: number;
 };
 
-export const GRAPH_VERSION = "v21.0";
+export const GRAPH_VERSION = Deno.env.get("FBAI_GRAPH_VERSION") || DEFAULT_GRAPH_VERSION;
 export const WORKER_NAME = "aurora-worker";
 
 export const corsHeaders = {

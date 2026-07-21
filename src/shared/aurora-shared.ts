@@ -67,3 +67,11 @@ export function isTerminalJobFailure(
 ): boolean {
   return errorDetail.startsWith("TOKEN_EXPIRED:") || attempts >= maxAttempts;
 }
+
+/** Default Facebook Graph API version. Was previously hardcoded
+ * independently in 5 separate places (the worker's own _core.ts plus
+ * four client-side call sites in test-connections.ts/setup-runner.ts)
+ * -- the worker reads FBAI_GRAPH_VERSION as an env override of this
+ * default; client call sites use this constant directly, since they
+ * don't need runtime configurability the same way. */
+export const DEFAULT_GRAPH_VERSION = "v21.0";
